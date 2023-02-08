@@ -44,6 +44,7 @@ import org.assertj.core.util.Lists;
 import org.junit.Before;
 import org.junit.Test;
 
+@SuppressWarnings("MockNotUsedInProduction")
 public class PrivCreatePrivacyGroupTest {
 
   private static final String FROM = "first participant";
@@ -230,7 +231,7 @@ public class PrivCreatePrivacyGroupTest {
         catchThrowableOfType(
             () -> privCreatePrivacyGroup.response(request), InvalidJsonRpcParameters.class);
 
-    assertThat(response.getMessage()).isEqualTo("Invalid json rpc parameter at index 0");
+    assertThat(response.getMessage()).contains("Invalid json rpc parameter at index 0");
   }
 
   @Test

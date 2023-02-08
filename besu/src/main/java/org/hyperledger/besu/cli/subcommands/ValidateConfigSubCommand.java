@@ -22,7 +22,7 @@ import org.hyperledger.besu.cli.DefaultCommandValues;
 import org.hyperledger.besu.cli.util.TomlConfigFileDefaultProvider;
 import org.hyperledger.besu.cli.util.VersionProvider;
 
-import java.io.PrintStream;
+import java.io.PrintWriter;
 import java.nio.file.Path;
 
 import picocli.CommandLine;
@@ -30,6 +30,7 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.ParentCommand;
 
+/** The Besu configuration Validate sub command. */
 @Command(
     name = COMMAND_NAME,
     description = "This command provides basic Besu config validation (syntax only).",
@@ -37,6 +38,7 @@ import picocli.CommandLine.ParentCommand;
     versionProvider = VersionProvider.class)
 public class ValidateConfigSubCommand implements Runnable {
 
+  /** The constant COMMAND_NAME. */
   public static final String COMMAND_NAME = "validate-config";
 
   @Option(
@@ -49,10 +51,16 @@ public class ValidateConfigSubCommand implements Runnable {
   @ParentCommand
   private BesuCommand parentCommand;
 
-  final PrintStream out;
-  final CommandLine commandLine;
+  private final PrintWriter out;
+  private final CommandLine commandLine;
 
-  public ValidateConfigSubCommand(final CommandLine commandLine, final PrintStream out) {
+  /**
+   * Instantiates a new Validate config sub command.
+   *
+   * @param commandLine the command line
+   * @param out the PrintWriter where validation results will be reported.
+   */
+  public ValidateConfigSubCommand(final CommandLine commandLine, final PrintWriter out) {
     this.out = out;
     this.commandLine = commandLine;
   }
@@ -63,10 +71,10 @@ public class ValidateConfigSubCommand implements Runnable {
     try {
       new TomlConfigFileDefaultProvider(commandLine, dataPath.toFile()).loadConfigurationFromFile();
     } catch (Exception e) {
-      this.out.print(e);
+      this.out.println(e);
       return;
     }
-    this.out.print(
+    this.out.println(
         "TOML config file is valid on basic inspection. Further dependencies between related options are checked when Besu starts.");
   }
 }

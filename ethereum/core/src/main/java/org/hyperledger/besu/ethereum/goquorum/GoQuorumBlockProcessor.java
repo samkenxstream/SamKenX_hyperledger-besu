@@ -19,6 +19,8 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.enclave.EnclaveClientException;
 import org.hyperledger.besu.enclave.GoQuorumEnclave;
 import org.hyperledger.besu.enclave.types.GoQuorumReceiveResponse;
+import org.hyperledger.besu.ethereum.BlockProcessingOutputs;
+import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -26,7 +28,7 @@ import org.hyperledger.besu.ethereum.core.GoQuorumPrivacyParameters;
 import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
-import org.hyperledger.besu.ethereum.mainnet.AbstractBlockProcessor;
+import org.hyperledger.besu.ethereum.mainnet.HeaderBasedProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionValidator;
@@ -42,6 +44,7 @@ import org.hyperledger.besu.evm.log.LogsBloomFilter;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -64,21 +67,23 @@ public class GoQuorumBlockProcessor extends MainnetBlockProcessor {
       final Wei blockReward,
       final MiningBeneficiaryCalculator miningBeneficiaryCalculator,
       final boolean skipZeroBlockRewards,
-      final Optional<GoQuorumPrivacyParameters> goQuorumPrivacyParameters) {
+      final Optional<GoQuorumPrivacyParameters> goQuorumPrivacyParameters,
+      final HeaderBasedProtocolSchedule protocolSchedule) {
     super(
         transactionProcessor,
         transactionReceiptFactory,
         blockReward,
         miningBeneficiaryCalculator,
         skipZeroBlockRewards,
-        Optional.empty());
+        Optional.empty(),
+        protocolSchedule);
 
     this.goQuorumEnclave = goQuorumPrivacyParameters.orElseThrow().enclave();
     this.goQuorumPrivateStorage = goQuorumPrivacyParameters.orElseThrow().privateStorage();
   }
 
   @Override
-  public Result processBlock(
+  public BlockProcessingResult processBlock(
       final Blockchain blockchain,
       final MutableWorldState publicWorldState,
       final MutableWorldState privateWorldState,
@@ -95,7 +100,7 @@ public class GoQuorumBlockProcessor extends MainnetBlockProcessor {
 
     for (final Transaction transaction : transactions) {
       if (!hasAvailableBlockBudget(blockHeader, transaction, currentGasUsed)) {
-        return AbstractBlockProcessor.Result.failed();
+        return new BlockProcessingResult(Optional.empty(), "insufficient gas");
       }
 
       final WorldUpdater publicWorldStateUpdater = publicWorldState.updater();
@@ -124,7 +129,7 @@ public class GoQuorumBlockProcessor extends MainnetBlockProcessor {
           final ValidationResult<TransactionInvalidReason> validationResult =
               validateTransaction(blockHeader, transaction, publicWorldStateUpdater);
           if (!validationResult.isValid()) {
-            return AbstractBlockProcessor.Result.failed();
+            return new BlockProcessingResult(Optional.empty(), e);
           }
         }
       } else { // public Transaction
@@ -148,12 +153,14 @@ public class GoQuorumBlockProcessor extends MainnetBlockProcessor {
                 null);
 
         if (result.isInvalid()) {
-          LOG.info(
-              "Block processing error: transaction invalid '{}'. Block {} Transaction {}",
-              result.getValidationResult().getInvalidReason(),
-              blockHeader.getHash().toHexString(),
-              transaction.getHash().toHexString());
-          return AbstractBlockProcessor.Result.failed();
+          String errorMessage =
+              MessageFormat.format(
+                  "Block processing error: transaction invalid '{}'. Block {} Transaction {}",
+                  result.getValidationResult().getErrorMessage(),
+                  blockHeader.getHash().toHexString(),
+                  transaction.getHash().toHexString());
+          LOG.info(errorMessage);
+          return new BlockProcessingResult(Optional.empty(), errorMessage);
         }
 
         if (isGoQuorumPrivateTransaction) { // private transaction we are party to
@@ -197,7 +204,7 @@ public class GoQuorumBlockProcessor extends MainnetBlockProcessor {
 
     if (!rewardCoinbase(publicWorldState, blockHeader, ommers, skipZeroBlockRewards)) {
       // no need to log, rewardCoinbase logs the error.
-      return AbstractBlockProcessor.Result.failed();
+      return new BlockProcessingResult(Optional.empty(), "ommer too old");
     }
 
     // create the bloom for the private transactions in the block and store it
@@ -214,7 +221,9 @@ public class GoQuorumBlockProcessor extends MainnetBlockProcessor {
         publicWorldState.rootHash(), privateWorldState.rootHash());
     privateStorageUpdater.commit();
 
-    return Result.successful(publicTxReceipts, privateTxReceipts);
+    var mainnetYield = new BlockProcessingOutputs(publicWorldState, publicTxReceipts);
+    var privateYield = new BlockProcessingOutputs(privateWorldState, privateTxReceipts);
+    return new GoQuorumBlockProcessingResult(mainnetYield, privateYield);
   }
 
   private ValidationResult<TransactionInvalidReason> validateTransaction(
@@ -283,6 +292,7 @@ public class GoQuorumBlockProcessor extends MainnetBlockProcessor {
         // signature of the private transaction will not (and should not) be
         // checked again.
         transaction.getChainId(),
-        Optional.of(transaction.getV()));
+        Optional.of(transaction.getV()),
+        Optional.empty());
   }
 }

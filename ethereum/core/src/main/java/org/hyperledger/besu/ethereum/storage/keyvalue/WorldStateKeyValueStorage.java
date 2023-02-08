@@ -98,6 +98,11 @@ public class WorldStateKeyValueStorage implements WorldStateStorage {
   }
 
   @Override
+  public void clearTrieLog() {
+    // nothing to do for forest
+  }
+
+  @Override
   public void clearFlatDatabase() {
     // nothing to do for forest
   }
@@ -110,8 +115,8 @@ public class WorldStateKeyValueStorage implements WorldStateStorage {
   @Override
   public long prune(final Predicate<byte[]> inUseCheck) {
     final AtomicInteger prunedKeys = new AtomicInteger(0);
-    try (final Stream<byte[]> keys = keyValueStorage.streamKeys()) {
-      keys.forEach(
+    try (final Stream<byte[]> entry = keyValueStorage.streamKeys()) {
+      entry.forEach(
           key -> {
             lock.lock();
             try {

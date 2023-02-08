@@ -29,6 +29,7 @@ import org.hyperledger.besu.config.Keccak256ConfigOptions;
 import org.hyperledger.besu.crypto.NodeKey;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.GasLimitCalculator;
+import org.hyperledger.besu.ethereum.bonsai.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.core.MiningParameters;
 import org.hyperledger.besu.ethereum.core.PrivacyParameters;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
@@ -46,6 +47,7 @@ import org.hyperledger.besu.ethereum.worldstate.WorldStatePreimageStorage;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorage;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.ObservableMetricsSystem;
+import org.hyperledger.besu.plugin.services.storage.KeyValueStorageTransaction;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 
 import java.math.BigInteger;
@@ -83,6 +85,7 @@ public class BesuControllerBuilderTest {
   @Mock StorageProvider storageProvider;
   @Mock GasLimitCalculator gasLimitCalculator;
   @Mock WorldStateStorage worldStateStorage;
+  @Mock BonsaiWorldStateKeyValueStorage bonsaiWorldStateStorage;
   @Mock WorldStatePreimageStorage worldStatePreimageStorage;
 
   BigInteger networkId = BigInteger.ONE;
@@ -97,6 +100,7 @@ public class BesuControllerBuilderTest {
     when(genesisConfigFile.getMixHash()).thenReturn(Hash.ZERO.toHexString());
     when(genesisConfigFile.getNonce()).thenReturn(Long.toHexString(1));
     when(genesisConfigFile.getConfigOptions(any())).thenReturn(genesisConfigOptions);
+    when(genesisConfigFile.getConfigOptions()).thenReturn(genesisConfigOptions);
     when(genesisConfigOptions.getThanosBlockNumber()).thenReturn(OptionalLong.empty());
     when(genesisConfigOptions.getEthashConfigOptions()).thenReturn(ethashConfigOptions);
     when(genesisConfigOptions.getCheckpointOptions()).thenReturn(checkpointConfigOptions);
@@ -128,7 +132,13 @@ public class BesuControllerBuilderTest {
     when(worldStatePreimageStorage.updater())
         .thenReturn(mock(WorldStatePreimageStorage.Updater.class));
     when(worldStateStorage.updater()).thenReturn(mock(WorldStateStorage.Updater.class));
-
+    BonsaiWorldStateKeyValueStorage.BonsaiUpdater bonsaiUpdater =
+        mock(BonsaiWorldStateKeyValueStorage.BonsaiUpdater.class);
+    when(bonsaiUpdater.getTrieLogStorageTransaction())
+        .thenReturn(mock(KeyValueStorageTransaction.class));
+    when(bonsaiUpdater.getTrieBranchStorageTransaction())
+        .thenReturn(mock(KeyValueStorageTransaction.class));
+    when(bonsaiWorldStateStorage.updater()).thenReturn(bonsaiUpdater);
     besuControllerBuilder = visitWithMockConfigs(new MainnetBesuControllerBuilder());
   }
 
@@ -152,12 +162,15 @@ public class BesuControllerBuilderTest {
 
   @Test
   public void shouldDisablePruningIfBonsaiIsEnabled() {
+    when(storageProvider.createWorldStateStorage(DataStorageFormat.BONSAI))
+        .thenReturn(bonsaiWorldStateStorage);
     besuControllerBuilder
         .isPruningEnabled(true)
         .dataStorageConfiguration(
             ImmutableDataStorageConfiguration.builder()
                 .dataStorageFormat(DataStorageFormat.BONSAI)
                 .bonsaiMaxLayersToLoad(DataStorageConfiguration.DEFAULT_BONSAI_MAX_LAYERS_TO_LOAD)
+                .useBonsaiSnapshots(DataStorageConfiguration.DEFAULT_BONSAI_USE_SNAPSHOTS)
                 .build());
     besuControllerBuilder.build();
 
@@ -174,6 +187,7 @@ public class BesuControllerBuilderTest {
             ImmutableDataStorageConfiguration.builder()
                 .dataStorageFormat(DataStorageFormat.FOREST)
                 .bonsaiMaxLayersToLoad(DataStorageConfiguration.DEFAULT_BONSAI_MAX_LAYERS_TO_LOAD)
+                .useBonsaiSnapshots(DataStorageConfiguration.DEFAULT_BONSAI_USE_SNAPSHOTS)
                 .build());
     besuControllerBuilder.build();
 

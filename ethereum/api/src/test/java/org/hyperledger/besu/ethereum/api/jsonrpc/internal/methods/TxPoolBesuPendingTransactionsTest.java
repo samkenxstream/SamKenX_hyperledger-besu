@@ -25,7 +25,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PendingTran
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionPendingResult;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
-import org.hyperledger.besu.ethereum.eth.transactions.sorter.AbstractPendingTransactionsSorter;
+import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.sorter.GasPricePendingTransactionsSorter;
 
 import java.time.Instant;
@@ -49,12 +49,13 @@ public class TxPoolBesuPendingTransactionsTest {
   private TxPoolBesuPendingTransactions method;
   private final String JSON_RPC_VERSION = "2.0";
   private final String TXPOOL_PENDING_TRANSACTIONS_METHOD = "txpool_besuPendingTransactions";
+  private Set<PendingTransaction> listTrx;
 
   @Before
   public void setUp() {
-    final Set<AbstractPendingTransactionsSorter.TransactionInfo> listTrx = getPendingTransactions();
+    listTrx = getPendingTransactions();
     method = new TxPoolBesuPendingTransactions(pendingTransactions);
-    when(this.pendingTransactions.getTransactionInfo()).thenReturn(listTrx);
+    when(this.pendingTransactions.getPendingTransactions()).thenReturn(listTrx);
   }
 
   @Test
@@ -72,7 +73,7 @@ public class TxPoolBesuPendingTransactionsTest {
     final JsonRpcSuccessResponse actualResponse = (JsonRpcSuccessResponse) method.response(request);
     final Set<TransactionPendingResult> result =
         (Set<TransactionPendingResult>) actualResponse.getResult();
-    assertThat(result.size()).isEqualTo(4);
+    assertThat(result.size()).isEqualTo(getPendingTransactions().size());
   }
 
   @Test
@@ -119,13 +120,7 @@ public class TxPoolBesuPendingTransactionsTest {
 
     final Map<String, String> fromFilter = new HashMap<>();
     fromFilter.put(
-        "eq",
-        pendingTransactions.getTransactionInfo().stream()
-            .findAny()
-            .get()
-            .getTransaction()
-            .getSender()
-            .toHexString());
+        "eq", listTrx.stream().findAny().get().getTransaction().getSender().toHexString());
 
     final JsonRpcRequestContext request =
         new JsonRpcRequestContext(
@@ -259,14 +254,13 @@ public class TxPoolBesuPendingTransactionsTest {
         .hasMessageContaining("The `to` filter only supports the `eq` or `action` operator");
   }
 
-  private Set<AbstractPendingTransactionsSorter.TransactionInfo> getPendingTransactions() {
+  private Set<PendingTransaction> getPendingTransactions() {
 
     final BlockDataGenerator gen = new BlockDataGenerator();
     return gen.transactionsWithAllTypes(4).stream()
         .map(
             transaction ->
-                new AbstractPendingTransactionsSorter.TransactionInfo(
-                    transaction, true, Instant.ofEpochSecond(Integer.MAX_VALUE)))
+                new PendingTransaction(transaction, true, Instant.ofEpochSecond(Integer.MAX_VALUE)))
         .collect(Collectors.toUnmodifiableSet());
   }
 }

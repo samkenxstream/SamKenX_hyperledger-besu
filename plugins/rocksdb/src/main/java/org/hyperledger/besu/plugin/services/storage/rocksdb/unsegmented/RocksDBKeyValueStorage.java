@@ -23,7 +23,7 @@ import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorageTransaction;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBMetrics;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBMetricsFactory;
-import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDbKeyIterator;
+import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDbIterator;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDbUtil;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBConfiguration;
 import org.hyperledger.besu.services.kvstore.KeyValueStorageTransactionTransitionValidatorDecorator;
@@ -34,19 +34,21 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
 
+import org.apache.commons.lang3.tuple.Pair;
 import org.rocksdb.BlockBasedTableConfig;
 import org.rocksdb.LRUCache;
+import org.rocksdb.OptimisticTransactionDB;
 import org.rocksdb.Options;
+import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksDBException;
 import org.rocksdb.RocksIterator;
 import org.rocksdb.Statistics;
 import org.rocksdb.Status;
-import org.rocksdb.TransactionDB;
-import org.rocksdb.TransactionDBOptions;
 import org.rocksdb.WriteOptions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/** The Rocks db key value storage. */
 public class RocksDBKeyValueStorage implements KeyValueStorage {
 
   static {
@@ -56,12 +58,20 @@ public class RocksDBKeyValueStorage implements KeyValueStorage {
   private static final Logger LOG = LoggerFactory.getLogger(RocksDBKeyValueStorage.class);
 
   private final Options options;
-  private final TransactionDB db;
+  private final OptimisticTransactionDB db;
   private final AtomicBoolean closed = new AtomicBoolean(false);
   private final RocksDBMetrics rocksDBMetrics;
   private final WriteOptions tryDeleteOptions =
       new WriteOptions().setNoSlowdown(true).setIgnoreMissingColumnFamilies(true);
+  private final ReadOptions readOptions = new ReadOptions().setVerifyChecksums(false);
 
+  /**
+   * Instantiates a new Rocks db key value storage.
+   *
+   * @param configuration the configuration
+   * @param metricsSystem the metrics system
+   * @param rocksDBMetricsFactory the rocks db metrics factory
+   */
   public RocksDBKeyValueStorage(
       final RocksDBConfiguration configuration,
       final MetricsSystem metricsSystem,
@@ -78,9 +88,7 @@ public class RocksDBKeyValueStorage implements KeyValueStorage {
               .setStatistics(stats);
       options.getEnv().setBackgroundThreads(configuration.getBackgroundThreadCount());
 
-      db =
-          TransactionDB.open(
-              options, new TransactionDBOptions(), configuration.getDatabaseDir().toString());
+      db = OptimisticTransactionDB.open(options, configuration.getDatabaseDir().toString());
       rocksDBMetrics = rocksDBMetricsFactory.create(metricsSystem, configuration, db, stats);
     } catch (final RocksDBException e) {
       throw new StorageException(e);
@@ -116,7 +124,7 @@ public class RocksDBKeyValueStorage implements KeyValueStorage {
 
     try (final OperationTimer.TimingContext ignored =
         rocksDBMetrics.getReadLatency().startTimer()) {
-      return Optional.ofNullable(db.get(key));
+      return Optional.ofNullable(db.get(readOptions, key));
     } catch (final RocksDBException e) {
       throw new StorageException(e);
     }
@@ -124,14 +132,32 @@ public class RocksDBKeyValueStorage implements KeyValueStorage {
 
   @Override
   public Set<byte[]> getAllKeysThat(final Predicate<byte[]> returnCondition) {
-    return streamKeys().filter(returnCondition).collect(toUnmodifiableSet());
+    return stream()
+        .filter(pair -> returnCondition.test(pair.getKey()))
+        .map(Pair::getKey)
+        .collect(toUnmodifiableSet());
+  }
+
+  @Override
+  public Stream<Pair<byte[], byte[]>> stream() {
+    final RocksIterator rocksIterator = db.newIterator();
+    rocksIterator.seekToFirst();
+    return RocksDbIterator.create(rocksIterator).toStream();
   }
 
   @Override
   public Stream<byte[]> streamKeys() {
     final RocksIterator rocksIterator = db.newIterator();
     rocksIterator.seekToFirst();
-    return RocksDbKeyIterator.create(rocksIterator).toStream();
+    return RocksDbIterator.create(rocksIterator).toStreamKeys();
+  }
+
+  @Override
+  public Set<byte[]> getAllValuesFromKeysThat(final Predicate<byte[]> returnCondition) {
+    return stream()
+        .filter(pair -> returnCondition.test(pair.getKey()))
+        .map(Pair::getValue)
+        .collect(toUnmodifiableSet());
   }
 
   @Override

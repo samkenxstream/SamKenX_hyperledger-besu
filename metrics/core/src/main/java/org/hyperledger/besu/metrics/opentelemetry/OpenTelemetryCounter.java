@@ -19,14 +19,20 @@ import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.common.AttributesBuilder;
-import io.opentelemetry.api.metrics.BoundLongCounter;
 import io.opentelemetry.api.metrics.LongCounter;
 
+/** The Open telemetry counter. */
 public class OpenTelemetryCounter implements LabelledMetric<Counter> {
 
   private final LongCounter counter;
   private final String[] labelNames;
 
+  /**
+   * Instantiates a new Open telemetry counter.
+   *
+   * @param counter the counter
+   * @param labelNames the label names
+   */
   public OpenTelemetryCounter(final LongCounter counter, final String... labelNames) {
     this.counter = counter;
     this.labelNames = labelNames;
@@ -39,25 +45,26 @@ public class OpenTelemetryCounter implements LabelledMetric<Counter> {
       builder.put(labelNames[i], labelValues[i]);
     }
     final Attributes labels = builder.build();
-    BoundLongCounter boundLongCounter = counter.bind(labels);
-    return new OpenTelemetryCounter.UnlabelledCounter(boundLongCounter);
+    return new BoundLongCounter(counter, labels);
   }
 
-  private static class UnlabelledCounter implements Counter {
-    private final BoundLongCounter counter;
+  private static class BoundLongCounter implements Counter {
+    private final LongCounter counter;
+    private final Attributes labels;
 
-    private UnlabelledCounter(final BoundLongCounter counter) {
+    private BoundLongCounter(final LongCounter counter, final Attributes labels) {
       this.counter = counter;
+      this.labels = labels;
     }
 
     @Override
     public void inc() {
-      counter.add(1);
+      counter.add(1, labels);
     }
 
     @Override
     public void inc(final long amount) {
-      counter.add(amount);
+      counter.add(amount, labels);
     }
   }
 }

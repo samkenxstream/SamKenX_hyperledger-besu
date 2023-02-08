@@ -19,26 +19,39 @@ import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 
-import java.util.Optional;
-import java.util.OptionalLong;
-
+/** The Invalid operation. */
 public class InvalidOperation extends AbstractOperation {
 
-  protected final OperationResult invalidOperation;
+  /** The constant OPCODE. */
+  public static final int OPCODE = 0xFE;
+  /** The constant INVALID_RESULT. */
+  public static final OperationResult INVALID_RESULT =
+      new OperationResult(0, ExceptionalHaltReason.INVALID_OPERATION);
+  /** The Invalid operation result. */
+  protected final OperationResult invalidResult;
 
+  /**
+   * Instantiates a new Invalid operation.
+   *
+   * @param gasCalculator the gas calculator
+   */
   public InvalidOperation(final GasCalculator gasCalculator) {
-    this(0xFE, gasCalculator);
+    this(OPCODE, gasCalculator);
   }
 
+  /**
+   * Instantiates a new Invalid operation.
+   *
+   * @param opcode the opcode
+   * @param gasCalculator the gas calculator
+   */
   public InvalidOperation(final int opcode, final GasCalculator gasCalculator) {
-    super(opcode, "INVALID", -1, -1, 1, gasCalculator);
-    invalidOperation =
-        new OperationResult(
-            OptionalLong.of(0L), Optional.of(ExceptionalHaltReason.INVALID_OPERATION));
+    super(opcode, "INVALID", -1, -1, gasCalculator);
+    invalidResult = new OperationResult(0L, ExceptionalHaltReason.INVALID_OPERATION);
   }
 
   @Override
   public OperationResult execute(final MessageFrame frame, final EVM evm) {
-    return invalidOperation;
+    return invalidResult;
   }
 }

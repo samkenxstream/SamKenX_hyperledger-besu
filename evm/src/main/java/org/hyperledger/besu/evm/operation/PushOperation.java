@@ -14,47 +14,69 @@
  */
 package org.hyperledger.besu.evm.operation;
 
-import static java.lang.Math.min;
-
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 
-import java.util.Optional;
-import java.util.OptionalLong;
-
 import org.apache.tuweni.bytes.Bytes;
 
+/** The Push operation. */
 public class PushOperation extends AbstractFixedCostOperation {
 
+  /** The constant PUSH_BASE. */
   public static final int PUSH_BASE = 0x5F;
+  /** The constant PUSH_MAX. */
+  public static final int PUSH_MAX = 0x7F;
 
   private final int length;
 
-  private final OperationResult pushResponse;
+  /** The Push operation success result. */
+  static final OperationResult pushSuccess = new OperationResult(3, null);
 
+  /**
+   * Instantiates a new Push operation.
+   *
+   * @param length the length
+   * @param gasCalculator the gas calculator
+   */
   public PushOperation(final int length, final GasCalculator gasCalculator) {
     super(
         PUSH_BASE + length,
         "PUSH" + length,
         0,
         1,
-        length + 1,
         gasCalculator,
         gasCalculator.getVeryLowTierGasCost());
     this.length = length;
-    pushResponse = new OperationResult(OptionalLong.of(gasCost), Optional.empty(), length + 1);
   }
 
   @Override
-  public Operation.OperationResult executeFixedCostOperation(
-      final MessageFrame frame, final EVM evm) {
-    final int pc = frame.getPC();
-    final Bytes code = frame.getCode().getBytes();
+  public OperationResult executeFixedCostOperation(final MessageFrame frame, final EVM evm) {
+    final byte[] code = frame.getCode().getBytes().toArrayUnsafe();
+    return staticOperation(frame, code, frame.getPC(), length);
+  }
 
-    final int copyLength = min(length, code.size() - pc - 1);
-    frame.pushStackItem(code.slice(pc + 1, copyLength));
-
-    return pushResponse;
+  /**
+   * Performs Push operation.
+   *
+   * @param frame the frame
+   * @param code the code
+   * @param pc the pc
+   * @param pushSize the push size
+   * @return the operation result
+   */
+  public static OperationResult staticOperation(
+      final MessageFrame frame, final byte[] code, final int pc, final int pushSize) {
+    int copyStart = pc + 1;
+    Bytes push;
+    if (code.length <= copyStart) {
+      push = Bytes.EMPTY;
+    } else {
+      final int copyLength = Math.min(pushSize, code.length - pc - 1);
+      push = Bytes.wrap(code, copyStart, copyLength);
+    }
+    frame.pushStackItem(push);
+    frame.setPC(pc + pushSize);
+    return pushSuccess;
   }
 }

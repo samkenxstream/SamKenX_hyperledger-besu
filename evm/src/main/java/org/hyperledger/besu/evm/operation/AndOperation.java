@@ -20,21 +20,40 @@ import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 
 import org.apache.tuweni.units.bigints.UInt256;
 
+/** The And operation. */
 public class AndOperation extends AbstractFixedCostOperation {
 
+  /** The And operation success result. */
+  static final OperationResult andSuccess = new OperationResult(3, null);
+
+  /**
+   * Instantiates a new And operation.
+   *
+   * @param gasCalculator the gas calculator
+   */
   public AndOperation(final GasCalculator gasCalculator) {
-    super(0x16, "AND", 2, 1, 1, gasCalculator, gasCalculator.getVeryLowTierGasCost());
+    super(0x16, "AND", 2, 1, gasCalculator, gasCalculator.getVeryLowTierGasCost());
   }
 
   @Override
   public Operation.OperationResult executeFixedCostOperation(
       final MessageFrame frame, final EVM evm) {
+    return staticOperation(frame);
+  }
+
+  /**
+   * Static And operation.
+   *
+   * @param frame the frame
+   * @return the operation result
+   */
+  public static OperationResult staticOperation(final MessageFrame frame) {
     final UInt256 value0 = UInt256.fromBytes(frame.popStackItem());
     final UInt256 value1 = UInt256.fromBytes(frame.popStackItem());
 
     final UInt256 result = value0.and(value1);
     frame.pushStackItem(result);
 
-    return successResponse;
+    return andSuccess;
   }
 }

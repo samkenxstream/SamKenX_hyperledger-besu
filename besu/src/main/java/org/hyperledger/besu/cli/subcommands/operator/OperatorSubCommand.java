@@ -19,7 +19,7 @@ import static org.hyperledger.besu.cli.subcommands.operator.OperatorSubCommand.C
 import org.hyperledger.besu.cli.BesuCommand;
 import org.hyperledger.besu.cli.util.VersionProvider;
 
-import java.io.PrintStream;
+import java.io.PrintWriter;
 
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Model.CommandSpec;
@@ -40,10 +40,13 @@ import picocli.CommandLine.Spec;
     })
 public class OperatorSubCommand implements Runnable {
 
+  /** The constant COMMAND_NAME. */
   public static final String COMMAND_NAME = "operator";
+  /** The constant GENERATE_BLOCKCHAIN_CONFIG_SUBCOMMAND_NAME. */
   public static final String GENERATE_BLOCKCHAIN_CONFIG_SUBCOMMAND_NAME =
       "generate-blockchain-config";
 
+  /** The Parent command. */
   @SuppressWarnings("unused")
   @ParentCommand
   BesuCommand parentCommand; // Picocli injects reference to parent command
@@ -52,9 +55,14 @@ public class OperatorSubCommand implements Runnable {
   @Spec
   private CommandSpec spec; // Picocli injects reference to command spec
 
-  private final PrintStream out;
+  private final PrintWriter out;
 
-  public OperatorSubCommand(final PrintStream out) {
+  /**
+   * Instantiates a new Operator sub command.
+   *
+   * @param out the out
+   */
+  public OperatorSubCommand(final PrintWriter out) {
     this.out = out;
   }
 

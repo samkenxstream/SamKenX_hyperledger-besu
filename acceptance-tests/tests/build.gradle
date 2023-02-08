@@ -12,8 +12,17 @@
  */
 
 plugins {
-  id 'org.web3j' version '4.8.9'
+  id 'org.web3j' version '4.9.2'
   id 'org.web3j.solidity' version '0.3.5'
+}
+
+configurations.all {
+  resolutionStrategy.eachDependency { DependencyResolveDetails details ->
+    if (details.requested.group == 'org.web3j' && details.requested.version == '4.9.2') {
+      details.useVersion '4.9.4'
+      details.because 'Plugin version is 4.9.2 (latest), but we want it to use web3j libs version 4.9.4'
+    }
+  }
 }
 
 web3j { generatedPackageName = 'org.hyperledger.besu.tests.web3j.generated' }
@@ -46,15 +55,16 @@ dependencies {
 
   testImplementation 'com.github.tomakehurst:wiremock-jre8-standalone'
   testImplementation 'commons-io:commons-io'
+  testImplementation 'io.grpc:grpc-all'
   testImplementation 'io.grpc:grpc-core'
   testImplementation 'io.grpc:grpc-netty'
   testImplementation 'io.grpc:grpc-stub'
-  testImplementation 'io.jaegertracing:jaeger-client'
-  testImplementation 'io.jaegertracing:jaeger-proto'
+  testImplementation 'io.opentelemetry:opentelemetry-extension-trace-propagators'
+  testImplementation 'io.opentelemetry.instrumentation:opentelemetry-okhttp-3.0'
   testImplementation 'io.netty:netty-all'
-  testImplementation 'io.opentelemetry.proto:opentelemetry-proto'
   testImplementation 'io.opentelemetry:opentelemetry-api'
   testImplementation 'io.opentelemetry:opentelemetry-exporter-otlp'
+  testImplementation 'io.opentelemetry.proto:opentelemetry-proto'
   testImplementation 'io.opentelemetry:opentelemetry-sdk'
   testImplementation 'io.opentelemetry:opentelemetry-sdk-trace'
   testImplementation 'io.opentracing.contrib:opentracing-okhttp3'
@@ -72,9 +82,6 @@ dependencies {
   testImplementation 'org.web3j:abi'
   testImplementation 'org.web3j:besu'
   testImplementation 'org.web3j:core'
-  constraints {
-    implementation('jnr-posix:3.1.15') { because '3.0.47 from web3j has issues' }
-  }
 
   testRuntimeOnly 'org.junit.vintage:junit-vintage-engine'
 }
@@ -82,7 +89,11 @@ dependencies {
 test.enabled = false
 
 sourceSets {
-  test { resources { srcDirs "${rootDir}/acceptance-tests/test-plugins/build/libs" } }
+  test {
+    resources {
+      srcDirs "${rootDir}/acceptance-tests/test-plugins/build/libs"
+    }
+  }
 }
 
 processTestResources.dependsOn(':acceptance-tests:test-plugins:testPluginsJar')
@@ -95,7 +106,62 @@ task acceptanceTest(type: Test) {
   systemProperty 'acctests.runBesuAsProcess', 'true'
   systemProperty 'java.security.properties', "${buildDir}/resources/test/acceptanceTesting.security"
   mustRunAfter rootProject.subprojects*.test
-  description = 'Runs Besu acceptance tests.'
+  description = 'Runs ALL Besu acceptance tests (mainnet and non-mainnet).'
+  group = 'verification'
+
+  jvmArgs "-XX:ErrorFile=${buildDir}/jvmErrorLogs/java_err_pid%p.log"
+
+  testLogging {
+    exceptionFormat = 'full'
+    showStackTraces = true
+    showStandardStreams = Boolean.getBoolean('acctests.showStandardStreams')
+    showExceptions = true
+    showCauses = true
+  }
+
+  doFirst { mkdir "${buildDir}/jvmErrorLogs" }
+}
+task acceptanceTestMainnet(type: Test) {
+  inputs.property "integration.date", LocalTime.now() // so it runs at every invocation
+  exclude '**/bft/**'
+  exclude '**/clique/**'
+  exclude '**/permissioning/**'
+  exclude '**/privacy/**'
+
+  dependsOn(rootProject.installDist)
+  setSystemProperties(test.getSystemProperties())
+  systemProperty 'acctests.runBesuAsProcess', 'true'
+  systemProperty 'java.security.properties', "${buildDir}/resources/test/acceptanceTesting.security"
+  mustRunAfter rootProject.subprojects*.test
+  description = 'Runs MAINNET Besu acceptance tests (excluding permissioning, privacy and some other stable features).'
+  group = 'verification'
+
+  jvmArgs "-XX:ErrorFile=${buildDir}/jvmErrorLogs/java_err_pid%p.log"
+
+  testLogging {
+    exceptionFormat = 'full'
+    showStackTraces = true
+    showStandardStreams = Boolean.getBoolean('acctests.showStandardStreams')
+    showExceptions = true
+    showCauses = true
+  }
+
+  doFirst { mkdir "${buildDir}/jvmErrorLogs" }
+}
+
+task acceptanceTestNonMainnet(type: Test) {
+  inputs.property "integration.date", LocalTime.now() // so it runs at every invocation
+  include '**/bft/**'
+  include '**/clique/**'
+  include '**/permissioning/**'
+  include '**/privacy/**'
+
+  dependsOn(rootProject.installDist)
+  setSystemProperties(test.getSystemProperties())
+  systemProperty 'acctests.runBesuAsProcess', 'true'
+  systemProperty 'java.security.properties', "${buildDir}/resources/test/acceptanceTesting.security"
+  mustRunAfter rootProject.subprojects*.test
+  description = 'Runs NON-MAINNET Besu acceptance tests for permissioning and privacy (excluding mainnet features).'
   group = 'verification'
 
   jvmArgs "-XX:ErrorFile=${buildDir}/jvmErrorLogs/java_err_pid%p.log"

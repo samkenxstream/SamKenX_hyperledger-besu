@@ -21,20 +21,28 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
+import org.rocksdb.OptimisticTransactionDB;
 import org.rocksdb.RocksDBException;
-import org.rocksdb.TransactionDB;
 
+/** The RocksDb segment identifier. */
 public class RocksDbSegmentIdentifier {
 
-  private final TransactionDB db;
+  private final OptimisticTransactionDB db;
   private final AtomicReference<ColumnFamilyHandle> reference;
 
+  /**
+   * Instantiates a new RocksDb segment identifier.
+   *
+   * @param db the db
+   * @param columnFamilyHandle the column family handle
+   */
   public RocksDbSegmentIdentifier(
-      final TransactionDB db, final ColumnFamilyHandle columnFamilyHandle) {
+      final OptimisticTransactionDB db, final ColumnFamilyHandle columnFamilyHandle) {
     this.db = db;
     this.reference = new AtomicReference<>(columnFamilyHandle);
   }
 
+  /** Reset. */
   public void reset() {
     reference.getAndUpdate(
         oldHandle -> {
@@ -52,6 +60,11 @@ public class RocksDbSegmentIdentifier {
         });
   }
 
+  /**
+   * Get column family handle.
+   *
+   * @return the column family handle
+   */
   public ColumnFamilyHandle get() {
     return reference.get();
   }

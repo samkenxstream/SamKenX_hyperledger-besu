@@ -20,17 +20,36 @@ import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 
 import org.apache.tuweni.bytes.Bytes;
 
+/** The Stop operation. */
 public class StopOperation extends AbstractFixedCostOperation {
 
+  /** The Stop operation success result. */
+  static final OperationResult stopSuccess = new OperationResult(0, null);
+
+  /**
+   * Instantiates a new Stop operation.
+   *
+   * @param gasCalculator the gas calculator
+   */
   public StopOperation(final GasCalculator gasCalculator) {
-    super(0x00, "STOP", 0, 0, 1, gasCalculator, gasCalculator.getZeroTierGasCost());
+    super(0x00, "STOP", 0, 0, gasCalculator, gasCalculator.getZeroTierGasCost());
   }
 
   @Override
   public Operation.OperationResult executeFixedCostOperation(
       final MessageFrame frame, final EVM evm) {
+    return staticOperation(frame);
+  }
+
+  /**
+   * Performs Stop operation.
+   *
+   * @param frame the frame
+   * @return the operation result
+   */
+  public static OperationResult staticOperation(final MessageFrame frame) {
     frame.setState(MessageFrame.State.CODE_SUCCESS);
     frame.setOutputData(Bytes.EMPTY);
-    return successResponse;
+    return stopSuccess;
   }
 }

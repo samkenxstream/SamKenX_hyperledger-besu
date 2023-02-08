@@ -54,7 +54,7 @@ import org.slf4j.LoggerFactory;
  */
 public class DownloadHeaderSequenceTask extends AbstractRetryingPeerTask<List<BlockHeader>> {
   private static final Logger LOG = LoggerFactory.getLogger(DownloadHeaderSequenceTask.class);
-  private static final int DEFAULT_RETRIES = 3;
+  private static final int DEFAULT_RETRIES = 4;
 
   private final EthContext ethContext;
   private final ProtocolContext protocolContext;
@@ -217,12 +217,13 @@ public class DownloadHeaderSequenceTask extends AbstractRetryingPeerTask<List<Bl
                   .whenComplete(
                       (blockPeerTaskResult, error) -> {
                         if (error == null && blockPeerTaskResult.getResult() != null) {
-                          badBlockManager.addBadBlock(blockPeerTaskResult.getResult());
+                          badBlockManager.addBadBlock(
+                              blockPeerTaskResult.getResult(), Optional.ofNullable(error));
                         }
-                        headersResult.getPeer().disconnect(DisconnectReason.BREACH_OF_PROTOCOL);
                         LOG.debug(
-                            "Received invalid headers from peer, disconnecting from: {}",
+                            "Received invalid headers from peer (BREACH_OF_PROTOCOL), disconnecting from: {}",
                             headersResult.getPeer());
+                        headersResult.getPeer().disconnect(DisconnectReason.BREACH_OF_PROTOCOL);
                         future.completeExceptionally(
                             new InvalidBlockException(
                                 "Header failed validation.",

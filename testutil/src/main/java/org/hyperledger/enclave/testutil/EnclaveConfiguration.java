@@ -18,20 +18,35 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
+/** The Enclave configuration. */
 public class EnclaveConfiguration {
 
   private final Path[] publicKeys;
   private final Path[] privateKeys;
+  private final EnclaveEncryptorType enclaveEncryptorType;
   private final Path tempDir;
   private final List<String> otherNodes = new ArrayList<>();
   private final boolean clearKnownNodes;
   private final String storage;
   private final String name;
 
+  /**
+   * Instantiates a new Enclave configuration.
+   *
+   * @param name the name
+   * @param publicKeys the public keys
+   * @param privateKeys the private keys
+   * @param enclaveEncryptorType the enclave encryptor type
+   * @param tempDir the temp dir
+   * @param otherNodes the other nodes
+   * @param clearKnownNodes the clear known nodes
+   * @param storage the storage
+   */
   public EnclaveConfiguration(
       final String name,
       final Path[] publicKeys,
       final Path[] privateKeys,
+      final EnclaveEncryptorType enclaveEncryptorType,
       final Path tempDir,
       final List<String> otherNodes,
       final boolean clearKnownNodes,
@@ -39,6 +54,7 @@ public class EnclaveConfiguration {
 
     this.publicKeys = publicKeys;
     this.privateKeys = privateKeys;
+    this.enclaveEncryptorType = enclaveEncryptorType;
     this.tempDir = tempDir;
     this.otherNodes.addAll(otherNodes);
     this.clearKnownNodes = clearKnownNodes;
@@ -46,35 +62,84 @@ public class EnclaveConfiguration {
     this.name = name;
   }
 
+  /**
+   * Get public keys.
+   *
+   * @return the path [ ]
+   */
   public Path[] getPublicKeys() {
     return publicKeys;
   }
 
+  /**
+   * Get private keys.
+   *
+   * @return the path [ ]
+   */
   public Path[] getPrivateKeys() {
     return privateKeys;
   }
 
+  /**
+   * Gets temp dir.
+   *
+   * @return the temp dir
+   */
   public Path getTempDir() {
     return tempDir;
   }
 
+  /**
+   * Gets other nodes.
+   *
+   * @return the other nodes
+   */
   public List<String> getOtherNodes() {
     return otherNodes;
   }
 
+  /**
+   * Add other node.
+   *
+   * @param otherNode the other node
+   */
   public void addOtherNode(final String otherNode) {
     otherNodes.add(otherNode);
   }
 
+  /**
+   * Is clear known nodes boolean.
+   *
+   * @return the boolean
+   */
   public boolean isClearKnownNodes() {
     return clearKnownNodes;
   }
 
+  /**
+   * Gets storage.
+   *
+   * @return the storage
+   */
   public String getStorage() {
     return storage;
   }
 
+  /**
+   * Gets name.
+   *
+   * @return the name
+   */
   public String getName() {
     return name;
+  }
+
+  /**
+   * Gets enclave encryptor type.
+   *
+   * @return the enclave encryptor type
+   */
+  public EnclaveEncryptorType getEnclaveEncryptorType() {
+    return enclaveEncryptorType;
   }
 }

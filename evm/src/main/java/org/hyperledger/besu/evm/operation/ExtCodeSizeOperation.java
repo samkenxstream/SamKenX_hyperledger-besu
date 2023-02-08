@@ -24,17 +24,26 @@ import org.hyperledger.besu.evm.internal.FixedStack.OverflowException;
 import org.hyperledger.besu.evm.internal.FixedStack.UnderflowException;
 import org.hyperledger.besu.evm.internal.Words;
 
-import java.util.Optional;
-import java.util.OptionalLong;
-
 import org.apache.tuweni.units.bigints.UInt256;
 
+/** The Ext code size operation. */
 public class ExtCodeSizeOperation extends AbstractOperation {
 
+  /**
+   * Instantiates a new Ext code size operation.
+   *
+   * @param gasCalculator the gas calculator
+   */
   public ExtCodeSizeOperation(final GasCalculator gasCalculator) {
-    super(0x3B, "EXTCODESIZE", 1, 1, 1, gasCalculator);
+    super(0x3B, "EXTCODESIZE", 1, 1, gasCalculator);
   }
 
+  /**
+   * Cost of Ext code size operation.
+   *
+   * @param accountIsWarm the account is warm
+   * @return the long
+   */
   protected long cost(final boolean accountIsWarm) {
     return gasCalculator().getExtCodeSizeOperationGasCost()
         + (accountIsWarm
@@ -50,20 +59,17 @@ public class ExtCodeSizeOperation extends AbstractOperation {
           frame.warmUpAddress(address) || gasCalculator().isPrecompile(address);
       final long cost = cost(accountIsWarm);
       if (frame.getRemainingGas() < cost) {
-        return new OperationResult(
-            OptionalLong.of(cost), Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
+        return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
       } else {
         final Account account = frame.getWorldUpdater().get(address);
         frame.pushStackItem(
             account == null ? UInt256.ZERO : UInt256.valueOf(account.getCode().size()));
-        return new OperationResult(OptionalLong.of(cost), Optional.empty());
+        return new OperationResult(cost, null);
       }
     } catch (final UnderflowException ufe) {
-      return new OperationResult(
-          OptionalLong.of(cost(true)), Optional.of(ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS));
+      return new OperationResult(cost(true), ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
     } catch (final OverflowException ofe) {
-      return new OperationResult(
-          OptionalLong.of(cost(true)), Optional.of(ExceptionalHaltReason.TOO_MANY_STACK_ITEMS));
+      return new OperationResult(cost(true), ExceptionalHaltReason.TOO_MANY_STACK_ITEMS);
     }
   }
 }

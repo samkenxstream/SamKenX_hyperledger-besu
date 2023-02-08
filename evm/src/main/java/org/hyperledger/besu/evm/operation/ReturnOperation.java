@@ -21,13 +21,16 @@ import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 
-import java.util.Optional;
-import java.util.OptionalLong;
-
+/** The Return operation. */
 public class ReturnOperation extends AbstractOperation {
 
+  /**
+   * Instantiates a new Return operation.
+   *
+   * @param gasCalculator the gas calculator
+   */
   public ReturnOperation(final GasCalculator gasCalculator) {
-    super(0xF3, "RETURN", 2, 0, 1, gasCalculator);
+    super(0xF3, "RETURN", 2, 0, gasCalculator);
   }
 
   @Override
@@ -37,12 +40,11 @@ public class ReturnOperation extends AbstractOperation {
 
     final long cost = gasCalculator().memoryExpansionGasCost(frame, from, length);
     if (frame.getRemainingGas() < cost) {
-      return new OperationResult(
-          OptionalLong.of(cost), Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
+      return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
 
     frame.setOutputData(frame.readMemory(from, length));
     frame.setState(MessageFrame.State.CODE_SUCCESS);
-    return new OperationResult(OptionalLong.of(cost), Optional.empty());
+    return new OperationResult(cost, null);
   }
 }

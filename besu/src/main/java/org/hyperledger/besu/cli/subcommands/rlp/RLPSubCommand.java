@@ -27,7 +27,7 @@ import java.io.BufferedWriter;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.PrintStream;
+import java.io.PrintWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Scanner;
@@ -42,6 +42,7 @@ import picocli.CommandLine.ParameterException;
 import picocli.CommandLine.ParentCommand;
 import picocli.CommandLine.Spec;
 
+/** The RLP sub command. */
 @Command(
     name = RLPSubCommand.COMMAND_NAME,
     description = "This command provides RLP data related actions.",
@@ -50,9 +51,10 @@ import picocli.CommandLine.Spec;
     subcommands = {EncodeSubCommand.class})
 public class RLPSubCommand implements Runnable {
 
+  /** The constant COMMAND_NAME. */
   public static final String COMMAND_NAME = "rlp";
 
-  private final PrintStream out;
+  private final PrintWriter out;
   private final InputStream in;
 
   @SuppressWarnings("unused")
@@ -63,7 +65,13 @@ public class RLPSubCommand implements Runnable {
   @Spec
   private CommandSpec spec;
 
-  public RLPSubCommand(final PrintStream out, final InputStream in) {
+  /**
+   * Instantiates a new Rlp sub command.
+   *
+   * @param out the PrintWriter where the output of subcommand will be reported
+   * @param in the InputStream which will be used to read the input for this subcommand.
+   */
+  public RLPSubCommand(final PrintWriter out, final InputStream in) {
     this.out = out;
     this.in = in;
   }

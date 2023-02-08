@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.core.BlockImporter;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.BlockHeaderValidator;
+import org.hyperledger.besu.ethereum.mainnet.BlockImportResult;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
@@ -79,6 +80,17 @@ public class RlpBlockImporter implements Closeable {
     return importBlockchain(blocks, besuController, skipPowValidation, 0L, Long.MAX_VALUE);
   }
 
+  /**
+   * Import blockchain.
+   *
+   * @param blocks the blocks
+   * @param besuController the besu controller
+   * @param skipPowValidation the skip pow validation
+   * @param startBlock the start block
+   * @param endBlock the end block
+   * @return the rlp block importer - import result
+   * @throws IOException the io exception
+   */
   public RlpBlockImporter.ImportResult importBlockchain(
       final Path blocks,
       final BesuController besuController,
@@ -208,7 +220,7 @@ public class RlpBlockImporter implements Closeable {
       cumulativeTimer.start();
       segmentTimer.start();
       final BlockImporter blockImporter = protocolSpec.getBlockImporter();
-      final boolean blockImported =
+      final BlockImportResult blockImported =
           blockImporter.importBlock(
               context,
               block,
@@ -216,7 +228,7 @@ public class RlpBlockImporter implements Closeable {
                   ? HeaderValidationMode.LIGHT_SKIP_DETACHED
                   : HeaderValidationMode.SKIP_DETACHED,
               skipPowValidation ? HeaderValidationMode.LIGHT : HeaderValidationMode.FULL);
-      if (!blockImported) {
+      if (!blockImported.isImported()) {
         throw new IllegalStateException(
             "Invalid block at block number " + header.getNumber() + ".");
       }
@@ -278,12 +290,21 @@ public class RlpBlockImporter implements Closeable {
     }
   }
 
+  /** The Import result. */
   public static final class ImportResult {
 
+    /** The difficulty. */
     public final Difficulty td;
 
+    /** The Count. */
     final int count;
 
+    /**
+     * Instantiates a new Import result.
+     *
+     * @param td the td
+     * @param count the count
+     */
     ImportResult(final Difficulty td, final int count) {
       this.td = td;
       this.count = count;

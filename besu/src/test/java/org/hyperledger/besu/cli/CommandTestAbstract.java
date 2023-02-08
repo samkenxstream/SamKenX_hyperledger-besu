@@ -99,6 +99,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
+import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.vertx.core.Vertx;
 import io.vertx.core.VertxOptions;
 import org.apache.tuweni.bytes.Bytes;
@@ -116,20 +117,16 @@ import org.mockito.junit.MockitoJUnitRunner;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import picocli.CommandLine;
-import picocli.CommandLine.Help.Ansi;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.RunLast;
 
 @RunWith(MockitoJUnitRunner.class)
 public abstract class CommandTestAbstract {
-
   private static final Logger TEST_LOGGER = LoggerFactory.getLogger(CommandTestAbstract.class);
-
+  protected final PrintStream originalOut = System.out;
+  protected final PrintStream originalErr = System.err;
   protected final ByteArrayOutputStream commandOutput = new ByteArrayOutputStream();
-  private final PrintStream outPrintStream = new PrintStream(commandOutput);
-
   protected final ByteArrayOutputStream commandErrorOutput = new ByteArrayOutputStream();
-  private final PrintStream errPrintStream = new PrintStream(commandErrorOutput);
   private final HashMap<String, String> environment = new HashMap<>();
 
   private final List<TestBesuCommand> besuCommands = new ArrayList<>();
@@ -177,6 +174,7 @@ public abstract class CommandTestAbstract {
   @Captor protected ArgumentCaptor<Path> pathArgumentCaptor;
   @Captor protected ArgumentCaptor<String> stringArgumentCaptor;
   @Captor protected ArgumentCaptor<Integer> intArgumentCaptor;
+  @Captor protected ArgumentCaptor<Long> longArgumentCaptor;
   @Captor protected ArgumentCaptor<Float> floatCaptor;
   @Captor protected ArgumentCaptor<EthNetworkConfig> ethNetworkConfigArgumentCaptor;
   @Captor protected ArgumentCaptor<SynchronizerConfiguration> syncConfigurationCaptor;
@@ -202,7 +200,7 @@ public abstract class CommandTestAbstract {
     // doReturn used because of generic BesuController
     doReturn(mockControllerBuilder)
         .when(mockControllerBuilderFactory)
-        .fromEthNetworkConfig(any(), any());
+        .fromEthNetworkConfig(any(), any(), any());
     when(mockControllerBuilder.synchronizerConfiguration(any())).thenReturn(mockControllerBuilder);
     when(mockControllerBuilder.ethProtocolConfiguration(any())).thenReturn(mockControllerBuilder);
     when(mockControllerBuilder.transactionPoolConfiguration(any()))
@@ -228,6 +226,7 @@ public abstract class CommandTestAbstract {
     when(mockControllerBuilder.dataStorageConfiguration(any())).thenReturn(mockControllerBuilder);
     when(mockControllerBuilder.evmConfiguration(any())).thenReturn(mockControllerBuilder);
     when(mockControllerBuilder.maxPeers(anyInt())).thenReturn(mockControllerBuilder);
+    when(mockControllerBuilder.chainPruningConfiguration(any())).thenReturn(mockControllerBuilder);
     // doReturn used because of generic BesuController
     doReturn(mockController).when(mockControllerBuilder).build();
     lenient().when(mockController.getProtocolManager()).thenReturn(mockEthProtocolManager);
@@ -254,6 +253,7 @@ public abstract class CommandTestAbstract {
     when(mockRunnerBuilder.p2pListenInterface(anyString())).thenReturn(mockRunnerBuilder);
     when(mockRunnerBuilder.permissioningConfiguration(any())).thenReturn(mockRunnerBuilder);
     when(mockRunnerBuilder.maxPeers(anyInt())).thenReturn(mockRunnerBuilder);
+    when(mockRunnerBuilder.minPeers(anyInt())).thenReturn(mockRunnerBuilder);
     when(mockRunnerBuilder.limitRemoteWireConnectionsEnabled(anyBoolean()))
         .thenReturn(mockRunnerBuilder);
     when(mockRunnerBuilder.fractionRemoteConnectionsAllowed(anyFloat()))
@@ -282,8 +282,9 @@ public abstract class CommandTestAbstract {
     when(mockRunnerBuilder.ethstatsUrl(anyString())).thenReturn(mockRunnerBuilder);
     when(mockRunnerBuilder.ethstatsContact(anyString())).thenReturn(mockRunnerBuilder);
     when(mockRunnerBuilder.storageProvider(any())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.forkIdSupplier(any())).thenReturn(mockRunnerBuilder);
     when(mockRunnerBuilder.rpcEndpointService(any())).thenReturn(mockRunnerBuilder);
+    when(mockRunnerBuilder.legacyForkId(anyBoolean())).thenReturn(mockRunnerBuilder);
+    when(mockRunnerBuilder.rpcMaxLogsRange(any())).thenReturn(mockRunnerBuilder);
     when(mockRunnerBuilder.build()).thenReturn(mockRunner);
 
     final SignatureAlgorithm signatureAlgorithm = SignatureAlgorithmFactory.getInstance();
@@ -320,17 +321,24 @@ public abstract class CommandTestAbstract {
         .load(pkiKeyStoreConfigurationArgumentCaptor.capture());
   }
 
+  @Before
+  public void setUpStreams() {
+    // reset the global opentelemetry singleton
+    GlobalOpenTelemetry.resetForTest();
+    commandOutput.reset();
+    commandErrorOutput.reset();
+    System.setOut(new PrintStream(commandOutput));
+    System.setErr(new PrintStream(commandErrorOutput));
+  }
+
   // Display outputs for debug purpose
   @After
   public void displayOutput() throws IOException {
     TEST_LOGGER.info("Standard output {}", commandOutput.toString(UTF_8));
     TEST_LOGGER.info("Standard error {}", commandErrorOutput.toString(UTF_8));
 
-    outPrintStream.close();
-    commandOutput.close();
-
-    errPrintStream.close();
-    commandErrorOutput.close();
+    System.setOut(originalOut);
+    System.setErr(originalErr);
     besuCommands.forEach(TestBesuCommand::close);
   }
 
@@ -346,16 +354,55 @@ public abstract class CommandTestAbstract {
     return parseCommand(System.in, args);
   }
 
+  protected TestBesuCommand parseCommand(final InputStream in, final String... args) {
+    return parseCommand(TestType.NO_PORT_CHECK, in, args);
+  }
+
+  protected TestBesuCommand parseCommandWithRequiredOption(final String... args) {
+    return parseCommand(TestType.REQUIRED_OPTION, System.in, args);
+  }
+
+  protected TestBesuCommand parseCommandWithPortCheck(final String... args) {
+    return parseCommand(TestType.PORT_CHECK, System.in, args);
+  }
+
   private JsonBlockImporter jsonBlockImporterFactory(final BesuController controller) {
     return jsonBlockImporter;
   }
 
-  protected TestBesuCommand parseCommand(final InputStream in, final String... args) {
+  protected TestBesuCommand parseCommand(
+      final TestType testType, final InputStream in, final String... args) {
     // turn off ansi usage globally in picocli
     System.setProperty("picocli.ansi", "false");
+    // reset GlobalOpenTelemetry
+    GlobalOpenTelemetry.resetForTest();
 
-    final TestBesuCommand besuCommand =
-        new TestBesuCommand(
+    TestBesuCommand besuCommand = getTestBesuCommand(testType);
+    besuCommands.add(besuCommand);
+
+    final File defaultKeyFile =
+        KeyPairUtil.getDefaultKeyFile(DefaultCommandValues.getDefaultBesuDataPath(besuCommand));
+    try {
+      Files.writeString(defaultKeyFile.toPath(), keyPair.getPrivateKey().toString());
+    } catch (final IOException e) {
+      throw new RuntimeException(e);
+    }
+    besuCommand.setBesuConfiguration(commonPluginConfiguration);
+
+    // parse using Ansi.OFF to be able to assert on non formatted output results
+    besuCommand.parse(
+        new RunLast(),
+        besuCommand.parameterExceptionHandler(),
+        besuCommand.executionExceptionHandler(),
+        in,
+        args);
+    return besuCommand;
+  }
+
+  private TestBesuCommand getTestBesuCommand(final TestType testType) {
+    switch (testType) {
+      case REQUIRED_OPTION:
+        return new TestBesuCommandWithRequiredOption(
             mockLogger,
             () -> rlpBlockImporter,
             this::jsonBlockImporterFactory,
@@ -368,24 +415,35 @@ public abstract class CommandTestAbstract {
             securityModuleService,
             mockPkiBlockCreationConfigProvider,
             privacyPluginService);
-    besuCommands.add(besuCommand);
-
-    File defaultKeyFile =
-        KeyPairUtil.getDefaultKeyFile(DefaultCommandValues.getDefaultBesuDataPath(besuCommand));
-    try {
-      Files.writeString(defaultKeyFile.toPath(), keyPair.getPrivateKey().toString());
-    } catch (IOException e) {
-      throw new RuntimeException(e);
+      case PORT_CHECK:
+        return new TestBesuCommand(
+            mockLogger,
+            () -> rlpBlockImporter,
+            this::jsonBlockImporterFactory,
+            (blockchain) -> rlpBlockExporter,
+            mockRunnerBuilder,
+            mockControllerBuilderFactory,
+            mockBesuPluginContext,
+            environment,
+            storageService,
+            securityModuleService,
+            mockPkiBlockCreationConfigProvider,
+            privacyPluginService);
+      default:
+        return new TestBesuCommandWithoutPortCheck(
+            mockLogger,
+            () -> rlpBlockImporter,
+            this::jsonBlockImporterFactory,
+            (blockchain) -> rlpBlockExporter,
+            mockRunnerBuilder,
+            mockControllerBuilderFactory,
+            mockBesuPluginContext,
+            environment,
+            storageService,
+            securityModuleService,
+            mockPkiBlockCreationConfigProvider,
+            privacyPluginService);
     }
-    besuCommand.setBesuConfiguration(commonPluginConfiguration);
-
-    // parse using Ansi.OFF to be able to assert on non formatted output results
-    besuCommand.parse(
-        new RunLast().useOut(outPrintStream).useAnsi(Ansi.OFF),
-        besuCommand.exceptionHandler().useErr(errPrintStream).useAnsi(Ansi.OFF),
-        in,
-        args);
-    return besuCommand;
   }
 
   @CommandLine.Command
@@ -478,5 +536,91 @@ public abstract class CommandTestAbstract {
         Awaitility.waitAtMost(30, TimeUnit.SECONDS).until(closed::get);
       }
     }
+  }
+
+  @CommandLine.Command
+  public static class TestBesuCommandWithRequiredOption extends TestBesuCommand {
+
+    @CommandLine.Option(
+        names = {"--accept-terms-and-conditions"},
+        description = "You must explicitly accept terms and conditions",
+        arity = "1",
+        required = true)
+    private final Boolean acceptTermsAndConditions = false;
+
+    TestBesuCommandWithRequiredOption(
+        final Logger mockLogger,
+        final Supplier<RlpBlockImporter> mockBlockImporter,
+        final Function<BesuController, JsonBlockImporter> jsonBlockImporterFactory,
+        final Function<Blockchain, RlpBlockExporter> rlpBlockExporterFactory,
+        final RunnerBuilder mockRunnerBuilder,
+        final BesuController.Builder controllerBuilderFactory,
+        final BesuPluginContextImpl besuPluginContext,
+        final Map<String, String> environment,
+        final StorageServiceImpl storageService,
+        final SecurityModuleServiceImpl securityModuleService,
+        final PkiBlockCreationConfigurationProvider pkiBlockCreationConfigProvider,
+        final PrivacyPluginServiceImpl privacyPluginService) {
+      super(
+          mockLogger,
+          mockBlockImporter,
+          jsonBlockImporterFactory,
+          rlpBlockExporterFactory,
+          mockRunnerBuilder,
+          controllerBuilderFactory,
+          besuPluginContext,
+          environment,
+          storageService,
+          securityModuleService,
+          pkiBlockCreationConfigProvider,
+          privacyPluginService);
+    }
+
+    public Boolean getAcceptTermsAndConditions() {
+      return acceptTermsAndConditions;
+    }
+  }
+
+  @CommandLine.Command
+  public static class TestBesuCommandWithoutPortCheck extends TestBesuCommand {
+
+    TestBesuCommandWithoutPortCheck(
+        final Logger mockLogger,
+        final Supplier<RlpBlockImporter> mockBlockImporter,
+        final Function<BesuController, JsonBlockImporter> jsonBlockImporterFactory,
+        final Function<Blockchain, RlpBlockExporter> rlpBlockExporterFactory,
+        final RunnerBuilder mockRunnerBuilder,
+        final BesuController.Builder controllerBuilderFactory,
+        final BesuPluginContextImpl besuPluginContext,
+        final Map<String, String> environment,
+        final StorageServiceImpl storageService,
+        final SecurityModuleServiceImpl securityModuleService,
+        final PkiBlockCreationConfigurationProvider pkiBlockCreationConfigProvider,
+        final PrivacyPluginServiceImpl privacyPluginService) {
+      super(
+          mockLogger,
+          mockBlockImporter,
+          jsonBlockImporterFactory,
+          rlpBlockExporterFactory,
+          mockRunnerBuilder,
+          controllerBuilderFactory,
+          besuPluginContext,
+          environment,
+          storageService,
+          securityModuleService,
+          pkiBlockCreationConfigProvider,
+          privacyPluginService);
+    }
+
+    @Override
+    protected void checkIfRequiredPortsAreAvailable() {
+      // For testing, don't check for port conflicts
+    }
+  }
+
+  private enum TestType {
+    REQUIRED_OPTION,
+    PORT_CHECK,
+    NO_PORT_CHECK
   }
 }

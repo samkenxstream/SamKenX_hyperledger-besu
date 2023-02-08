@@ -32,7 +32,7 @@ import org.hyperledger.besu.ethereum.core.Util;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.IOException;
-import java.io.PrintStream;
+import java.io.PrintWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.function.Function;
@@ -57,6 +57,7 @@ import picocli.CommandLine.Spec;
 public class PublicKeySubCommand implements Runnable {
   private static final Logger LOG = LoggerFactory.getLogger(PublicKeySubCommand.class);
 
+  /** The constant COMMAND_NAME. */
   public static final String COMMAND_NAME = "public-key";
 
   @SuppressWarnings("unused")
@@ -67,9 +68,14 @@ public class PublicKeySubCommand implements Runnable {
   @Spec
   private CommandSpec spec; // Picocli injects reference to command spec
 
-  private final PrintStream out;
+  private final PrintWriter out;
 
-  public PublicKeySubCommand(final PrintStream out) {
+  /**
+   * Instantiates a new Public key sub command.
+   *
+   * @param out the out
+   */
+  public PublicKeySubCommand(final PrintWriter out) {
     this.out = out;
   }
 
@@ -140,12 +146,14 @@ public class PublicKeySubCommand implements Runnable {
 
   private static class KeyPairSubcommand {
 
+    /** The Parent command. */
     @SuppressWarnings("unused")
     @ParentCommand
     protected PublicKeySubCommand parentCommand; // Picocli injects reference to parent command
 
     @Mixin private final NodePrivateKeyFileOption nodePrivateKeyFileOption = null;
 
+    /** The Ec curve. */
     @Option(
         names = "--ec-curve",
         paramLabel = "<NAME>",
@@ -159,6 +167,12 @@ public class PublicKeySubCommand implements Runnable {
 
     @Spec private final CommandSpec spec = null;
 
+    /**
+     * Run.
+     *
+     * @param exportFile the export file
+     * @param outputFunction the output function
+     */
     protected final void run(
         final File exportFile, final Function<KeyPair, String> outputFunction) {
       checkNotNull(parentCommand);
@@ -192,6 +206,12 @@ public class PublicKeySubCommand implements Runnable {
       }
     }
 
+    /**
+     * Configure ec curve.
+     *
+     * @param ecCurve the ec curve
+     * @param commandLine the command line
+     */
     protected static void configureEcCurve(final String ecCurve, final CommandLine commandLine) {
       if (ecCurve != null) {
         try {

@@ -50,6 +50,10 @@ import java.util.Set;
 public class ClassicProtocolSpecs {
   private static final Wei MAX_BLOCK_REWARD = Wei.fromEth(5);
 
+  private ClassicProtocolSpecs() {
+    // utility class
+  }
+
   public static ProtocolSpecBuilder classicRecoveryInitDefinition(
       final OptionalInt contractSizeLimit,
       final OptionalInt configStackSizeLimit,
@@ -80,7 +84,7 @@ public class ClassicProtocolSpecs {
 
   public static ProtocolSpecBuilder dieHardDefinition(
       final Optional<BigInteger> chainId,
-      final OptionalInt configContractSizeLimit,
+      final OptionalInt ignoredConfigContractSizeLimit,
       final OptionalInt configStackSizeLimit,
       final boolean quorumCompatibilityMode,
       final EvmConfiguration evmConfiguration) {
@@ -116,14 +120,16 @@ public class ClassicProtocolSpecs {
                 blockReward,
                 miningBeneficiaryCalculator,
                 skipZeroBlockRewards,
-                goQuorumPrivacyParameters) ->
+                goQuorumPrivacyParameters,
+                protocolSchedule) ->
                 new ClassicBlockProcessor(
                     transactionProcessor,
                     transactionReceiptFactory,
                     blockReward,
                     miningBeneficiaryCalculator,
                     skipZeroBlockRewards,
-                    ecip1017EraRounds))
+                    ecip1017EraRounds,
+                    protocolSchedule))
         .name("Gotham");
   }
 
@@ -197,6 +203,7 @@ public class ClassicProtocolSpecs {
                     contractCreationProcessor,
                     messageCallProcessor,
                     true,
+                    false,
                     stackSizeLimit,
                     FeeMarket.legacy(),
                     CoinbaseFeePriceCalculator.frontier()))

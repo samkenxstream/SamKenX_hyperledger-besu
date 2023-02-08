@@ -22,6 +22,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 
+import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -33,27 +34,26 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 import org.assertj.core.api.Assertions;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mockito;
 
 public class GraphQLHttpServiceCorsTest {
-  @Rule public final TemporaryFolder folder = new TemporaryFolder();
+  @TempDir private static Path folder;
 
   private final Vertx vertx = Vertx.vertx();
   private final OkHttpClient client = new OkHttpClient();
   private GraphQLHttpService graphQLHttpService;
 
-  @Before
+  @BeforeEach
   public void before() {
     final GraphQLConfiguration configuration = GraphQLConfiguration.createDefault();
     configuration.setPort(0);
   }
 
-  @After
+  @AfterEach
   public void after() {
     client.dispatcher().executorService().shutdown();
     client.connectionPool().evictAll();
@@ -67,7 +67,7 @@ public class GraphQLHttpServiceCorsTest {
 
     final Request request =
         new Request.Builder()
-            .url(graphQLHttpService.url() + "/graphql?query={protocolVersion}")
+            .url(graphQLHttpService.url() + "/graphql?query={maxPriorityFeePerGas}")
             .header("Origin", "http://bar.me")
             .build();
 
@@ -82,7 +82,7 @@ public class GraphQLHttpServiceCorsTest {
 
     final Request request =
         new Request.Builder()
-            .url(graphQLHttpService.url() + "/graphql?query={protocolVersion}")
+            .url(graphQLHttpService.url() + "/graphql?query={maxPriorityFeePerGas}")
             .header("Origin", "http://foo.io")
             .build();
 
@@ -99,7 +99,7 @@ public class GraphQLHttpServiceCorsTest {
 
     final Request request =
         new Request.Builder()
-            .url(graphQLHttpService.url() + "/graphql?query={protocolVersion}")
+            .url(graphQLHttpService.url() + "/graphql?query={maxPriorityFeePerGas}")
             .header("Origin", "http://bar.me")
             .build();
 
@@ -115,7 +115,7 @@ public class GraphQLHttpServiceCorsTest {
 
     final Request request =
         new Request.Builder()
-            .url(graphQLHttpService.url() + "/graphql?query={protocolVersion}")
+            .url(graphQLHttpService.url() + "/graphql?query={maxPriorityFeePerGas}")
             .header("Origin", "http://hel.lo")
             .build();
 
@@ -130,7 +130,7 @@ public class GraphQLHttpServiceCorsTest {
 
     final Request request =
         new Request.Builder()
-            .url(graphQLHttpService.url() + "/graphql?query={protocolVersion}")
+            .url(graphQLHttpService.url() + "/graphql?query={maxPriorityFeePerGas}")
             .build();
 
     try (final Response response = client.newCall(request).execute()) {
@@ -144,7 +144,7 @@ public class GraphQLHttpServiceCorsTest {
 
     final Request request =
         new Request.Builder()
-            .url(graphQLHttpService.url() + "/graphql?query={protocolVersion}")
+            .url(graphQLHttpService.url() + "/graphql?query={maxPriorityFeePerGas}")
             .build();
 
     try (final Response response = client.newCall(request).execute()) {
@@ -158,7 +158,7 @@ public class GraphQLHttpServiceCorsTest {
 
     final Request request =
         new Request.Builder()
-            .url(graphQLHttpService.url() + "/graphql?query={protocolVersion}")
+            .url(graphQLHttpService.url() + "/graphql?query={maxPriorityFeePerGas}")
             .header("Origin", "http://bar.me")
             .build();
 
@@ -173,7 +173,7 @@ public class GraphQLHttpServiceCorsTest {
 
     final Request request =
         new Request.Builder()
-            .url(graphQLHttpService.url() + "/graphql?query={protocolVersion}")
+            .url(graphQLHttpService.url() + "/graphql?query={maxPriorityFeePerGas}")
             .header("Origin", "http://bar.me")
             .build();
 
@@ -188,7 +188,7 @@ public class GraphQLHttpServiceCorsTest {
 
     final Request request =
         new Request.Builder()
-            .url(graphQLHttpService.url() + "/graphql?query={protocolVersion}")
+            .url(graphQLHttpService.url() + "/graphql?query={maxPriorityFeePerGas}")
             .method("OPTIONS", null)
             .header("Access-Control-Request-Method", "OPTIONS")
             .header("Origin", "http://foo.io")
@@ -233,12 +233,7 @@ public class GraphQLHttpServiceCorsTest {
 
     final GraphQLHttpService graphQLHttpService =
         new GraphQLHttpService(
-            vertx,
-            folder.newFolder().toPath(),
-            config,
-            graphQL,
-            graphQLContextMap,
-            Mockito.mock(EthScheduler.class));
+            vertx, folder, config, graphQL, graphQLContextMap, Mockito.mock(EthScheduler.class));
     graphQLHttpService.start().join();
 
     return graphQLHttpService;

@@ -15,7 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.methods;
 
 import org.hyperledger.besu.config.GenesisConfigOptions;
-import org.hyperledger.besu.config.MergeConfigOptions;
+import org.hyperledger.besu.consensus.merge.MergeProtocolSchedule;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.filter.FilterManager;
@@ -47,6 +47,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import io.vertx.core.Vertx;
+
 public class JsonRpcMethodsFactory {
 
   public Map<String, JsonRpcMethod> methods(
@@ -73,7 +75,9 @@ public class JsonRpcMethodsFactory {
       final NatService natService,
       final Map<String, BesuPlugin> namedPlugins,
       final Path dataDir,
-      final EthPeers ethPeers) {
+      final EthPeers ethPeers,
+      final Vertx consensusEngineServer,
+      final Optional<Long> maxLogRange) {
     final Map<String, JsonRpcMethod> enabled = new HashMap<>();
 
     if (!rpcApis.isEmpty()) {
@@ -92,9 +96,22 @@ public class JsonRpcMethodsFactory {
                   natService,
                   ethPeers),
               new DebugJsonRpcMethods(
-                  blockchainQueries, protocolSchedule, metricsSystem, transactionPool, dataDir),
+                  blockchainQueries,
+                  protocolContext,
+                  protocolSchedule,
+                  metricsSystem,
+                  transactionPool,
+                  synchronizer,
+                  dataDir),
               new EeaJsonRpcMethods(
                   blockchainQueries, protocolSchedule, transactionPool, privacyParameters),
+              new ExecutionEngineJsonRpcMethods(
+                  miningCoordinator,
+                  MergeProtocolSchedule.createTimestamp(
+                      genesisConfigOptions, privacyParameters, false),
+                  protocolContext,
+                  ethPeers,
+                  consensusEngineServer),
               new GoQuorumJsonRpcPrivacyMethods(
                   blockchainQueries, protocolSchedule, transactionPool, privacyParameters),
               new EthJsonRpcMethods(
@@ -105,7 +122,8 @@ public class JsonRpcMethodsFactory {
                   transactionPool,
                   miningCoordinator,
                   supportedCapabilities,
-                  privacyParameters),
+                  privacyParameters,
+                  maxLogRange),
               new NetJsonRpcMethods(
                   p2pNetwork,
                   networkId,
@@ -126,11 +144,6 @@ public class JsonRpcMethodsFactory {
               new TraceJsonRpcMethods(blockchainQueries, protocolSchedule, privacyParameters),
               new TxPoolJsonRpcMethods(transactionPool),
               new PluginsJsonRpcMethods(namedPlugins));
-
-      if (MergeConfigOptions.isMergeEnabled()) {
-        enabled.putAll(
-            new ExecutionEngineJsonRpcMethods(miningCoordinator, protocolContext).create(rpcApis));
-      }
 
       for (final JsonRpcMethods apiGroup : availableApiGroups) {
         enabled.putAll(apiGroup.create(rpcApis));

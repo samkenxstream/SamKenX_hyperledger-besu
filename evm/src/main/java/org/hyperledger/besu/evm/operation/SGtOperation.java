@@ -23,15 +23,34 @@ import java.math.BigInteger;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 
+/** The SGt operation. */
 public class SGtOperation extends AbstractFixedCostOperation {
 
+  /** The SGt operation success result. */
+  static final OperationResult sgtSuccess = new OperationResult(3, null);
+
+  /**
+   * Instantiates a new SGt operation.
+   *
+   * @param gasCalculator the gas calculator
+   */
   public SGtOperation(final GasCalculator gasCalculator) {
-    super(0x13, "SGT", 2, 1, 1, gasCalculator, gasCalculator.getVeryLowTierGasCost());
+    super(0x13, "SGT", 2, 1, gasCalculator, gasCalculator.getVeryLowTierGasCost());
   }
 
   @Override
   public Operation.OperationResult executeFixedCostOperation(
       final MessageFrame frame, final EVM evm) {
+    return staticOperation(frame);
+  }
+
+  /**
+   * Performs SGt operation.
+   *
+   * @param frame the frame
+   * @return the operation result
+   */
+  public static OperationResult staticOperation(final MessageFrame frame) {
     final Bytes value0 = frame.popStackItem();
     final Bytes value1 = frame.popStackItem();
 
@@ -48,6 +67,6 @@ public class SGtOperation extends AbstractFixedCostOperation {
 
     frame.pushStackItem(result);
 
-    return successResponse;
+    return sgtSuccess;
   }
 }

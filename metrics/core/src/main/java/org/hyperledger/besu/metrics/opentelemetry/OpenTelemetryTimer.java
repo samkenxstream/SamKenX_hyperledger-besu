@@ -21,6 +21,7 @@ import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.common.AttributesBuilder;
 import io.opentelemetry.api.metrics.Meter;
 
+/** The Open telemetry timer. */
 public class OpenTelemetryTimer implements LabelledMetric<OperationTimer> {
 
   private final String help;
@@ -28,6 +29,14 @@ public class OpenTelemetryTimer implements LabelledMetric<OperationTimer> {
   private final String metricName;
   private final String[] labelNames;
 
+  /**
+   * Instantiates a new Open telemetry timer.
+   *
+   * @param metricName the metric name
+   * @param help the help
+   * @param meter the meter
+   * @param labelNames the label names
+   */
   public OpenTelemetryTimer(
       final String metricName, final String help, final Meter meter, final String... labelNames) {
     this.metricName = metricName;
@@ -51,7 +60,7 @@ public class OpenTelemetryTimer implements LabelledMetric<OperationTimer> {
         meter
             .gaugeBuilder(metricName)
             .setDescription(help)
-            .buildWithCallback((measurement) -> measurement.observe((double) elapsed, labels));
+            .buildWithCallback((measurement) -> measurement.record((double) elapsed, labels));
         return elapsed / 1e9;
       };
     };

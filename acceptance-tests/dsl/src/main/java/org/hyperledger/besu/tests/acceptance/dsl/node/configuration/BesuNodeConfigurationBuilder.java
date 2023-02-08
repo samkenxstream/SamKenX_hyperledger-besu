@@ -16,6 +16,9 @@ package org.hyperledger.besu.tests.acceptance.dsl.node.configuration;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static java.util.Collections.singletonList;
+import static org.hyperledger.besu.pki.keystore.KeyStoreWrapper.KEYSTORE_TYPE_JKS;
+import static org.hyperledger.besu.pki.keystore.KeyStoreWrapper.KEYSTORE_TYPE_PKCS11;
+import static org.hyperledger.besu.pki.keystore.KeyStoreWrapper.KEYSTORE_TYPE_PKCS12;
 
 import org.hyperledger.besu.cli.config.NetworkName;
 import org.hyperledger.besu.crypto.KeyPair;
@@ -34,7 +37,6 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.connections.netty.TLSConfiguration
 import org.hyperledger.besu.ethereum.permissioning.PermissioningConfiguration;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
 import org.hyperledger.besu.pki.config.PkiKeyStoreConfiguration;
-import org.hyperledger.besu.pki.keystore.KeyStoreWrapper;
 import org.hyperledger.besu.tests.acceptance.dsl.node.configuration.genesis.GenesisConfigurationProvider;
 import org.hyperledger.besu.tests.acceptance.dsl.node.configuration.pki.PKCS11Utils;
 
@@ -44,7 +46,9 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public class BesuNodeConfigurationBuilder {
@@ -85,6 +89,7 @@ public class BesuNodeConfigurationBuilder {
   private Optional<KeyPair> keyPair = Optional.empty();
   private Optional<PkiKeyStoreConfiguration> pkiKeyStoreConfiguration = Optional.empty();
   private Boolean strictTxReplayProtectionEnabled = false;
+  private Map<String, String> environment = new HashMap<>();
 
   public BesuNodeConfigurationBuilder() {
     // Check connections more frequently during acceptance tests to cut down on
@@ -176,6 +181,11 @@ public class BesuNodeConfigurationBuilder {
 
   public BesuNodeConfigurationBuilder jsonRpcAdmin() {
     this.jsonRpcConfiguration.addRpcApi(RpcApis.ADMIN.name());
+    return this;
+  }
+
+  public BesuNodeConfigurationBuilder jsonRpcDebug() {
+    this.jsonRpcConfiguration.addRpcApi(RpcApis.DEBUG.name());
     return this;
   }
 
@@ -358,38 +368,38 @@ public class BesuNodeConfigurationBuilder {
     final TLSConfiguration.Builder builder = TLSConfiguration.Builder.tlsConfiguration();
     try {
       final String nsspin = "/pki-certs/%s/nsspin.txt";
-      final String truststore = "/pki-certs/%s/truststore.jks";
-      final String crl = "/pki-certs/%s/crl.pem";
+      final String truststore = "/pki-certs/%s/truststore.p12";
+      final String crl = "/pki-certs/crl/crl.pem";
       switch (type) {
-        case KeyStoreWrapper.KEYSTORE_TYPE_JKS:
+        case KEYSTORE_TYPE_JKS:
           builder
               .withKeyStoreType(type)
-              .withKeyStorePath(toPath(String.format("/pki-certs/%s/keystore.jks", name)))
+              .withKeyStorePath(toPath(String.format("/pki-certs/%s/%<s.jks", name)))
               .withKeyStorePasswordSupplier(
                   new FileBasedPasswordProvider(toPath(String.format(nsspin, name))))
               .withKeyStorePasswordPath(toPath(String.format(nsspin, name)))
-              .withTrustStoreType(type)
+              .withTrustStoreType(KEYSTORE_TYPE_PKCS12)
               .withTrustStorePath(toPath(String.format(truststore, name)))
               .withTrustStorePasswordSupplier(
                   new FileBasedPasswordProvider(toPath(String.format(nsspin, name))))
               .withTrustStorePasswordPath(toPath(String.format(nsspin, name)))
-              .withCrlPath(toPath(String.format(crl, name)));
+              .withCrlPath(toPath(crl));
           break;
-        case KeyStoreWrapper.KEYSTORE_TYPE_PKCS12:
+        case KEYSTORE_TYPE_PKCS12:
           builder
               .withKeyStoreType(type)
-              .withKeyStorePath(toPath(String.format("/pki-certs/%s/keys.p12", name)))
+              .withKeyStorePath(toPath(String.format("/pki-certs/%s/%<s.p12", name)))
               .withKeyStorePasswordSupplier(
                   new FileBasedPasswordProvider(toPath(String.format(nsspin, name))))
               .withKeyStorePasswordPath(toPath(String.format(nsspin, name)))
-              .withTrustStoreType(KeyStoreWrapper.KEYSTORE_TYPE_JKS)
+              .withTrustStoreType(KEYSTORE_TYPE_PKCS12)
               .withTrustStorePath(toPath(String.format(truststore, name)))
               .withTrustStorePasswordSupplier(
                   new FileBasedPasswordProvider(toPath(String.format(nsspin, name))))
               .withTrustStorePasswordPath(toPath(String.format(nsspin, name)))
-              .withCrlPath(toPath(String.format(crl, name)));
+              .withCrlPath(toPath(crl));
           break;
-        case KeyStoreWrapper.KEYSTORE_TYPE_PKCS11:
+        case KEYSTORE_TYPE_PKCS11:
           builder
               .withKeyStoreType(type)
               .withKeyStorePath(
@@ -398,7 +408,7 @@ public class BesuNodeConfigurationBuilder {
               .withKeyStorePasswordSupplier(
                   new FileBasedPasswordProvider(toPath(String.format(nsspin, name))))
               .withKeyStorePasswordPath(toPath(String.format(nsspin, name)))
-              .withCrlPath(toPath(String.format(crl, name)));
+              .withCrlPath(toPath(crl));
           break;
       }
     } catch (Exception e) {
@@ -478,6 +488,11 @@ public class BesuNodeConfigurationBuilder {
     return this;
   }
 
+  public BesuNodeConfigurationBuilder environment(final Map<String, String> environment) {
+    this.environment = environment;
+    return this;
+  }
+
   public BesuNodeConfiguration build() {
     return new BesuNodeConfiguration(
         name,
@@ -510,6 +525,7 @@ public class BesuNodeConfigurationBuilder {
         runCommand,
         keyPair,
         pkiKeyStoreConfiguration,
-        strictTxReplayProtectionEnabled);
+        strictTxReplayProtectionEnabled,
+        environment);
   }
 }

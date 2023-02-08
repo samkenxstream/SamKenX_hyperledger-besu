@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.api.handlers;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError.INVALID_REQUEST;
 
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonResponseStreamer;
+import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.context.ContextKey;
 import org.hyperledger.besu.ethereum.api.jsonrpc.execution.JsonRpcExecutor;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
@@ -26,6 +27,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcRespon
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponseType;
 
 import java.io.IOException;
+import java.security.InvalidParameterException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -52,9 +54,11 @@ public class JsonRpcExecutorHandler {
   private static final Logger LOG = LoggerFactory.getLogger(JsonRpcExecutorHandler.class);
   private static final String SPAN_CONTEXT = "span_context";
   private static final String APPLICATION_JSON = "application/json";
-  private static final ObjectWriter JSON_OBJECT_WRITER =
+  private static final ObjectMapper JSON_OBJECT_MAPPER =
       new ObjectMapper()
-          .registerModule(new Jdk8Module()) // Handle JDK8 Optionals (de)serialization
+          .registerModule(new Jdk8Module()); // Handle JDK8 Optionals (de)serialization
+  private static final ObjectWriter JSON_OBJECT_WRITER =
+      JSON_OBJECT_MAPPER
           .writerWithDefaultPrettyPrinter()
           .without(JsonGenerator.Feature.FLUSH_PASSED_TO_STREAM)
           .with(JsonGenerator.Feature.AUTO_CLOSE_TARGET);
@@ -62,79 +66,141 @@ public class JsonRpcExecutorHandler {
   private JsonRpcExecutorHandler() {}
 
   public static Handler<RoutingContext> handler(
-      final JsonRpcExecutor jsonRpcExecutor, final Tracer tracer) {
+      final JsonRpcExecutor jsonRpcExecutor,
+      final Tracer tracer,
+      final JsonRpcConfiguration jsonRpcConfiguration) {
     return ctx -> {
       HttpServerResponse response = ctx.response();
       try {
-        Optional<User> user = ContextKey.AUTHENTICATED_USER.extractFrom(ctx, Optional::empty);
-        Context spanContext = ctx.get(SPAN_CONTEXT);
         response = response.putHeader("Content-Type", APPLICATION_JSON);
-
-        if (ctx.data().containsKey(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name())) {
-          JsonObject jsonRequest = ctx.get(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name());
-          JsonRpcResponse jsonRpcResponse =
-              jsonRpcExecutor.execute(
-                  user,
-                  tracer,
-                  spanContext,
-                  () -> !ctx.response().closed(),
-                  jsonRequest,
-                  req -> req.mapTo(JsonRpcRequest.class));
-          response.setStatusCode(status(jsonRpcResponse).code());
-          if (jsonRpcResponse.getType() == JsonRpcResponseType.NONE) {
-            response.end();
-          } else {
-            try (final JsonResponseStreamer streamer =
-                new JsonResponseStreamer(response, ctx.request().remoteAddress())) {
-              // underlying output stream lifecycle is managed by the json object writer
-              JSON_OBJECT_WRITER.writeValue(streamer, jsonRpcResponse);
-            }
-          }
-        } else if (ctx.data().containsKey(ContextKey.REQUEST_BODY_AS_JSON_ARRAY.name())) {
-          JsonArray batchJsonRequest = ctx.get(ContextKey.REQUEST_BODY_AS_JSON_ARRAY.name());
-          List<JsonRpcResponse> jsonRpcBatchResponse;
+        if (isJsonObjectRequest(ctx)) {
+          final JsonRpcResponse jsonRpcResponse =
+              executeJsonObjectRequest(jsonRpcExecutor, tracer, ctx);
+          handleJsonObjectResponse(response, jsonRpcResponse, ctx);
+        } else if (isJsonArrayRequest(ctx)) {
+          final List<JsonRpcResponse> jsonRpcBatchResponses;
           try {
-            List<JsonRpcResponse> responses = new ArrayList<>();
-            for (int i = 0; i < batchJsonRequest.size(); i++) {
-              final JsonObject jsonRequest;
-              try {
-                jsonRequest = batchJsonRequest.getJsonObject(i);
-              } catch (ClassCastException e) {
-                responses.add(new JsonRpcErrorResponse(null, INVALID_REQUEST));
-                continue;
-              }
-              responses.add(
-                  jsonRpcExecutor.execute(
-                      user,
-                      tracer,
-                      spanContext,
-                      () -> !ctx.response().closed(),
-                      jsonRequest,
-                      req -> req.mapTo(JsonRpcRequest.class)));
-            }
-            jsonRpcBatchResponse = responses;
-          } catch (RuntimeException e) {
+            jsonRpcBatchResponses =
+                executeJsonArrayRequest(jsonRpcExecutor, tracer, ctx, jsonRpcConfiguration);
+            handleJsonArrayResponse(response, jsonRpcBatchResponses, ctx);
+          } catch (final InvalidParameterException e) {
+            handleJsonRpcError(ctx, null, JsonRpcError.EXCEEDS_RPC_MAX_BATCH_SIZE);
+          } catch (final RuntimeException e) {
             response.setStatusCode(HttpResponseStatus.BAD_REQUEST.code()).end();
-            return;
-          }
-          final JsonRpcResponse[] completed =
-              jsonRpcBatchResponse.stream()
-                  .filter(jsonRpcResponse -> jsonRpcResponse.getType() != JsonRpcResponseType.NONE)
-                  .toArray(JsonRpcResponse[]::new);
-          try (final JsonResponseStreamer streamer =
-              new JsonResponseStreamer(response, ctx.request().remoteAddress())) {
-            // underlying output stream lifecycle is managed by the json object writer
-            JSON_OBJECT_WRITER.writeValue(streamer, completed);
           }
         } else {
           handleJsonRpcError(ctx, null, JsonRpcError.PARSE_ERROR);
         }
-      } catch (IOException ex) {
-        LOG.error("Error streaming JSON-RPC response", ex);
-      } catch (RuntimeException e) {
+      } catch (final IOException ex) {
+        final String method = getRpcMethodName(ctx);
+        LOG.error("{} - Error streaming JSON-RPC response", method, ex);
+      } catch (final RuntimeException e) {
         handleJsonRpcError(ctx, null, JsonRpcError.INTERNAL_ERROR);
       }
     };
+  }
+
+  private static boolean isJsonObjectRequest(final RoutingContext ctx) {
+    return ctx.data().containsKey(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name());
+  }
+
+  private static boolean isJsonArrayRequest(final RoutingContext ctx) {
+    return ctx.data().containsKey(ContextKey.REQUEST_BODY_AS_JSON_ARRAY.name());
+  }
+
+  private static JsonRpcResponse executeRequest(
+      final JsonRpcExecutor jsonRpcExecutor,
+      final Tracer tracer,
+      final JsonObject jsonRequest,
+      final RoutingContext ctx) {
+    final Optional<User> user = ContextKey.AUTHENTICATED_USER.extractFrom(ctx, Optional::empty);
+    final Context spanContext = ctx.get(SPAN_CONTEXT);
+    return jsonRpcExecutor.execute(
+        user,
+        tracer,
+        spanContext,
+        () -> !ctx.response().closed(),
+        jsonRequest,
+        req -> req.mapTo(JsonRpcRequest.class));
+  }
+
+  private static JsonRpcResponse executeJsonObjectRequest(
+      final JsonRpcExecutor jsonRpcExecutor, final Tracer tracer, final RoutingContext ctx) {
+    final JsonObject jsonRequest = ctx.get(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name());
+    lazyTraceLogger(jsonRequest::toString);
+    return executeRequest(jsonRpcExecutor, tracer, jsonRequest, ctx);
+  }
+
+  private static List<JsonRpcResponse> executeJsonArrayRequest(
+      final JsonRpcExecutor jsonRpcExecutor,
+      final Tracer tracer,
+      final RoutingContext ctx,
+      final JsonRpcConfiguration jsonRpcConfiguration)
+      throws InvalidParameterException {
+    final JsonArray batchJsonRequest = ctx.get(ContextKey.REQUEST_BODY_AS_JSON_ARRAY.name());
+    lazyTraceLogger(batchJsonRequest::toString);
+    final List<JsonRpcResponse> jsonRpcBatchResponses = new ArrayList<>();
+
+    if (jsonRpcConfiguration.getMaxBatchSize() > 0
+        && batchJsonRequest.size() > jsonRpcConfiguration.getMaxBatchSize()) {
+      throw new InvalidParameterException();
+    }
+
+    for (int i = 0; i < batchJsonRequest.size(); i++) {
+      final JsonObject jsonRequest;
+      try {
+        jsonRequest = batchJsonRequest.getJsonObject(i);
+      } catch (final ClassCastException e) {
+        jsonRpcBatchResponses.add(new JsonRpcErrorResponse(null, INVALID_REQUEST));
+        continue;
+      }
+      jsonRpcBatchResponses.add(executeRequest(jsonRpcExecutor, tracer, jsonRequest, ctx));
+    }
+    return jsonRpcBatchResponses;
+  }
+
+  private static void handleJsonObjectResponse(
+      final HttpServerResponse response,
+      final JsonRpcResponse jsonRpcResponse,
+      final RoutingContext ctx)
+      throws IOException {
+    response.setStatusCode(status(jsonRpcResponse).code());
+    if (jsonRpcResponse.getType() == JsonRpcResponseType.NONE) {
+      response.end();
+    } else {
+      try (final JsonResponseStreamer streamer =
+          new JsonResponseStreamer(response, ctx.request().remoteAddress())) {
+        // underlying output stream lifecycle is managed by the json object writer
+        lazyTraceLogger(() -> JSON_OBJECT_MAPPER.writeValueAsString(jsonRpcResponse));
+        JSON_OBJECT_WRITER.writeValue(streamer, jsonRpcResponse);
+      }
+    }
+  }
+
+  private static void handleJsonArrayResponse(
+      final HttpServerResponse response,
+      final List<JsonRpcResponse> jsonRpcBatchResponses,
+      final RoutingContext ctx)
+      throws IOException {
+    final JsonRpcResponse[] completed =
+        jsonRpcBatchResponses.stream()
+            .filter(jsonRpcResponse -> jsonRpcResponse.getType() != JsonRpcResponseType.NONE)
+            .toArray(JsonRpcResponse[]::new);
+    try (final JsonResponseStreamer streamer =
+        new JsonResponseStreamer(response, ctx.request().remoteAddress())) {
+      // underlying output stream lifecycle is managed by the json object writer
+      lazyTraceLogger(() -> JSON_OBJECT_MAPPER.writeValueAsString(completed));
+      JSON_OBJECT_WRITER.writeValue(streamer, completed);
+    }
+  }
+
+  private static String getRpcMethodName(final RoutingContext ctx) {
+    if (isJsonObjectRequest(ctx)) {
+      final JsonObject jsonObject = ctx.get(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name());
+      return jsonObject.getString("method");
+    } else {
+      return "";
+    }
   }
 
   private static void handleJsonRpcError(
@@ -163,11 +229,25 @@ public class JsonRpcExecutorHandler {
   private static HttpResponseStatus statusCodeFromError(final JsonRpcError error) {
     switch (error) {
       case INVALID_REQUEST:
-      case INVALID_PARAMS:
       case PARSE_ERROR:
         return HttpResponseStatus.BAD_REQUEST;
       default:
         return HttpResponseStatus.OK;
+    }
+  }
+
+  @FunctionalInterface
+  private interface ExceptionThrowingSupplier<T> {
+    T get() throws Exception;
+  }
+
+  private static void lazyTraceLogger(final ExceptionThrowingSupplier<String> logMessageSupplier) {
+    if (LOG.isTraceEnabled()) {
+      try {
+        LOG.trace(logMessageSupplier.get());
+      } catch (Exception e) {
+        throw new RuntimeException(e);
+      }
     }
   }
 }

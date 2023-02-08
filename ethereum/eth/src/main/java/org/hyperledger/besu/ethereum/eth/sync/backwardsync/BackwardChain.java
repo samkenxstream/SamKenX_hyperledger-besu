@@ -19,7 +19,6 @@ import static org.hyperledger.besu.util.Slf4jLambdaHelper.debugLambda;
 import static org.slf4j.LoggerFactory.getLogger;
 
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderFunctions;
@@ -94,15 +93,14 @@ public class BackwardChain {
       headers.put(blockHeader.getHash(), blockHeader);
       return;
     }
-    BlockHeader firstHeader = firstStoredAncestor.get();
+    final BlockHeader firstHeader = firstStoredAncestor.get();
     headers.put(blockHeader.getHash(), blockHeader);
-    chainStorage.put(blockHeader.getHash(), firstStoredAncestor.get().getHash());
+    chainStorage.put(blockHeader.getHash(), firstHeader.getHash());
     firstStoredAncestor = Optional.of(blockHeader);
     debugLambda(
         LOG,
-        "Added header {} on height {} to backward chain led by pivot {} on height {}",
+        "Added header {} to backward chain led by pivot {} on height {}",
         blockHeader::toLogString,
-        blockHeader::getNumber,
         () -> lastStoredPivot.orElseThrow().toLogString(),
         firstHeader::getNumber);
   }
@@ -128,16 +126,23 @@ public class BackwardChain {
   }
 
   public synchronized void appendTrustedBlock(final Block newPivot) {
-    debugLambda(LOG, "appending trusted block {}", newPivot::toLogString);
+    debugLambda(LOG, "Appending trusted block {}", newPivot::toLogString);
     headers.put(newPivot.getHash(), newPivot.getHeader());
     blocks.put(newPivot.getHash(), newPivot);
     if (lastStoredPivot.isEmpty()) {
       firstStoredAncestor = Optional.of(newPivot.getHeader());
     } else {
       if (newPivot.getHeader().getParentHash().equals(lastStoredPivot.get().getHash())) {
+        debugLambda(
+            LOG,
+            "Added block {} to backward chain led by pivot {} on height {}",
+            newPivot::toLogString,
+            lastStoredPivot.get()::toLogString,
+            firstStoredAncestor.get()::getNumber);
         chainStorage.put(lastStoredPivot.get().getHash(), newPivot.getHash());
       } else {
         firstStoredAncestor = Optional.of(newPivot.getHeader());
+        debugLambda(LOG, "Re-pivoting to new target block {}", newPivot::toLogString);
       }
     }
     lastStoredPivot = Optional.of(newPivot.getHeader());
@@ -160,6 +165,14 @@ public class BackwardChain {
     hashesToAppend.clear();
   }
 
+  public synchronized Optional<Hash> getDescendant(final Hash blockHash) {
+    return chainStorage.get(blockHash);
+  }
+
+  public synchronized Optional<Block> getBlock(final Hash hash) {
+    return blocks.get(hash);
+  }
+
   public synchronized Optional<BlockHeader> getHeader(final Hash hash) {
     return headers.get(hash);
   }
@@ -178,19 +191,6 @@ public class BackwardChain {
   public synchronized void removeFromHashToAppend(final Hash hashToRemove) {
     if (hashesToAppend.contains(hashToRemove)) {
       hashesToAppend.remove(hashToRemove);
-    }
-  }
-
-  public void addBadChainToManager(final BadBlockManager badBlocksManager, final Hash hash) {
-    final Optional<Hash> ancestor = chainStorage.get(hash);
-    while (ancestor.isPresent()) {
-      final Optional<Block> block = blocks.get(ancestor.get());
-      if (block.isPresent()) {
-        badBlocksManager.addBadBlock(block.get());
-      } else {
-        final Optional<BlockHeader> blockHeader = headers.get(ancestor.get());
-        blockHeader.ifPresent(badBlocksManager::addBadHeader);
-      }
     }
   }
 }

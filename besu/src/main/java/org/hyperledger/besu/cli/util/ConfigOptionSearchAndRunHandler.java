@@ -22,27 +22,33 @@ import java.util.Optional;
 
 import com.google.common.annotations.VisibleForTesting;
 import picocli.CommandLine;
-import picocli.CommandLine.AbstractParseResultHandler;
 import picocli.CommandLine.IDefaultValueProvider;
+import picocli.CommandLine.IExecutionStrategy;
+import picocli.CommandLine.IParameterExceptionHandler;
 import picocli.CommandLine.Model.OptionSpec;
 import picocli.CommandLine.ParameterException;
 import picocli.CommandLine.ParseResult;
 
-public class ConfigOptionSearchAndRunHandler extends AbstractParseResultHandler<List<Object>> {
-  private final AbstractParseResultHandler<List<Object>> resultHandler;
-  private final CommandLine.IExceptionHandler2<List<Object>> exceptionHandler;
+/** Custom Config option search and run handler. */
+public class ConfigOptionSearchAndRunHandler extends CommandLine.RunLast {
+  private final IExecutionStrategy resultHandler;
+  private final IParameterExceptionHandler parameterExceptionHandler;
   private final Map<String, String> environment;
 
+  /**
+   * Instantiates a new Config option search and run handler.
+   *
+   * @param resultHandler the result handler
+   * @param parameterExceptionHandler the parameter exception handler
+   * @param environment the environment variables map
+   */
   public ConfigOptionSearchAndRunHandler(
-      final AbstractParseResultHandler<List<Object>> resultHandler,
-      final CommandLine.IExceptionHandler2<List<Object>> exceptionHandler,
+      final IExecutionStrategy resultHandler,
+      final IParameterExceptionHandler parameterExceptionHandler,
       final Map<String, String> environment) {
     this.resultHandler = resultHandler;
-    this.exceptionHandler = exceptionHandler;
+    this.parameterExceptionHandler = parameterExceptionHandler;
     this.environment = environment;
-    // use the same output as the regular options handler to ensure that outputs are all going
-    // in the same place. No need to do this for the exception handler as we reuse it directly.
-    this.useOut(resultHandler.out());
   }
 
   @Override
@@ -51,8 +57,10 @@ public class ConfigOptionSearchAndRunHandler extends AbstractParseResultHandler<
     final Optional<File> configFile = findConfigFile(parseResult, commandLine);
     validatePrivacyOptions(parseResult, commandLine);
     commandLine.setDefaultValueProvider(createDefaultValueProvider(commandLine, configFile));
-    commandLine.parseWithHandlers(
-        resultHandler, exceptionHandler, parseResult.originalArgs().toArray(new String[0]));
+    commandLine.setExecutionStrategy(resultHandler);
+    commandLine.setParameterExceptionHandler(parameterExceptionHandler);
+    commandLine.execute(parseResult.originalArgs().toArray(new String[0]));
+
     return new ArrayList<>();
   }
 
@@ -98,6 +106,13 @@ public class ConfigOptionSearchAndRunHandler extends AbstractParseResultHandler<
     return Optional.empty();
   }
 
+  /**
+   * Create default value provider default value provider.
+   *
+   * @param commandLine the command line
+   * @param configFile the config file
+   * @return the default value provider
+   */
   @VisibleForTesting
   IDefaultValueProvider createDefaultValueProvider(
       final CommandLine commandLine, final Optional<File> configFile) {

@@ -23,16 +23,16 @@ import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.config.StubGenesisConfigOptions;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.BlockProcessingOutputs;
+import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.BlockValidator;
-import org.hyperledger.besu.ethereum.BlockValidator.Result;
 import org.hyperledger.besu.ethereum.ProtocolContext;
-import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
@@ -52,7 +52,9 @@ import org.hyperledger.besu.plugin.data.TransactionType;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import javax.annotation.Nonnull;
@@ -138,9 +140,10 @@ public class BackwardSyncContextTest {
             invocation -> {
               final Object[] arguments = invocation.getArguments();
               Block block = (Block) arguments[1];
-              return new Result(
-                  new BlockValidator.BlockProcessingOutputs(
-                      new ReferenceTestWorldState(), blockDataGenerator.receipts(block)));
+              return new BlockProcessingResult(
+                  Optional.of(
+                      new BlockProcessingOutputs(
+                          new ReferenceTestWorldState(), blockDataGenerator.receipts(block))));
             });
 
     backwardChain = inMemoryBackwardChain();
@@ -247,16 +250,7 @@ public class BackwardSyncContextTest {
 
   @Test
   public void testUpdatingHead() {
-    context.updateHeads(null, null);
-    context.possiblyMoveHead(null);
-    assertThat(localBlockchain.getChainHeadBlock().getHeader().getNumber()).isEqualTo(LOCAL_HEIGHT);
-
-    context.updateHeads(Hash.ZERO, null);
-    context.possiblyMoveHead(null);
-
-    assertThat(localBlockchain.getChainHeadBlock().getHeader().getNumber()).isEqualTo(LOCAL_HEIGHT);
-
-    context.updateHeads(localBlockchain.getBlockByNumber(4).orElseThrow().getHash(), null);
+    context.updateHead(localBlockchain.getBlockByNumber(4).orElseThrow().getHash());
     context.possiblyMoveHead(null);
 
     assertThat(localBlockchain.getChainHeadBlock().getHeader().getNumber()).isEqualTo(4);
@@ -276,21 +270,35 @@ public class BackwardSyncContextTest {
   }
 
   @Test
-  public void makeSureWeRememberBadBlocks() {
+  public void shouldEmitBadChainEvent() {
     Block block = Mockito.mock(Block.class);
-    when(block.getHash()).thenReturn(Hash.ZERO);
-    doReturn(blockValidator).when(context).getBlockValidatorForBlock(any());
-    Result result = new Result("custom error");
-    doReturn(result).when(blockValidator).validateAndProcessBlock(any(), any(), any(), any());
+    BlockHeader blockHeader = Mockito.mock(BlockHeader.class);
+    when(block.getHash()).thenReturn(Hash.fromHexStringLenient("0x42"));
+    when(blockHeader.getHash()).thenReturn(Hash.fromHexStringLenient("0x42"));
+    BadChainListener badChainListener = Mockito.mock(BadChainListener.class);
+    context.subscribeBadChainListener(badChainListener);
 
-    final BadBlockManager manager = mock(BadBlockManager.class);
-    doReturn(manager).when(mockProtocolSpec).getBadBlocksManager();
+    BlockHeader childBlockHeader =
+        remoteBlockchain.getBlockByNumber(LOCAL_HEIGHT + 2).get().getHeader();
+    BlockHeader grandChildBlockHeader =
+        remoteBlockchain.getBlockByNumber(LOCAL_HEIGHT + 1).get().getHeader();
+
+    backwardChain.clear();
+    backwardChain.prependAncestorsHeader(grandChildBlockHeader);
+    backwardChain.prependAncestorsHeader(childBlockHeader);
+    backwardChain.prependAncestorsHeader(blockHeader);
+
+    doReturn(blockValidator).when(context).getBlockValidatorForBlock(any());
+    BlockProcessingResult result = new BlockProcessingResult("custom error");
+    doReturn(result).when(blockValidator).validateAndProcessBlock(any(), any(), any(), any());
 
     assertThatThrownBy(() -> context.saveBlock(block))
         .isInstanceOf(BackwardSyncException.class)
         .hasMessageContaining("custom error");
 
-    Mockito.verify(manager).addBadBlock(block);
+    verify(badChainListener)
+        .onBadChain(
+            block, Collections.emptyList(), List.of(childBlockHeader, grandChildBlockHeader));
   }
 
   @Test

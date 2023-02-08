@@ -62,11 +62,13 @@ dependencies {
 
   implementation 'com.fasterxml.jackson.core:jackson-databind'
   implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jdk8'
+  implementation 'com.github.oshi:oshi-core'
   implementation 'com.google.guava:guava'
   implementation 'com.graphql-java:graphql-java'
   implementation 'info.picocli:picocli'
   implementation 'io.vertx:vertx-core'
   implementation 'io.vertx:vertx-web'
+  implementation 'org.apache.commons:commons-lang3'
   implementation 'org.apache.logging.log4j:log4j-core'
   implementation 'org.apache.tuweni:tuweni-bytes'
   implementation 'org.apache.tuweni:tuweni-config'
@@ -87,6 +89,7 @@ dependencies {
   testImplementation 'com.google.auto.service:auto-service'
   testImplementation 'com.squareup.okhttp3:okhttp'
   testImplementation 'commons-io:commons-io'
+  testImplementation 'io.opentelemetry:opentelemetry-api'
   testImplementation 'junit:junit'
   testImplementation 'org.apache.commons:commons-text'
   testImplementation 'org.apache.tuweni:tuweni-bytes'
@@ -97,12 +100,6 @@ dependencies {
   testImplementation 'org.mockito:mockito-core'
   testImplementation 'org.testcontainers:testcontainers'
   testImplementation 'tech.pegasys.discovery:discovery'
-  constraints {
-    implementation('com.github.jnr:jnr-posix') {
-      version { require '3.1.15' }
-      because '3.0.47 from web3j has issues'
-    }
-  }
 
   testRuntimeOnly 'org.junit.vintage:junit-vintage-engine'
 }

@@ -14,17 +14,17 @@
  */
 package org.hyperledger.besu.evm.operation;
 
+import static org.hyperledger.besu.evm.internal.Words.clampedToLong;
+
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.account.Account;
+import org.hyperledger.besu.evm.code.CodeV0;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
-
-import java.util.Optional;
-import java.util.OptionalLong;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -37,18 +37,26 @@ import org.apache.tuweni.units.bigints.UInt256;
  */
 public abstract class AbstractCallOperation extends AbstractOperation {
 
+  /** The constant UNDERFLOW_RESPONSE. */
   protected static final OperationResult UNDERFLOW_RESPONSE =
-      new OperationResult(
-          OptionalLong.of(0L), Optional.of(ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS));
+      new OperationResult(0L, ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
 
-  protected AbstractCallOperation(
+  /**
+   * Instantiates a new Abstract call operation.
+   *
+   * @param opcode the opcode
+   * @param name the name
+   * @param stackItemsConsumed the stack items consumed
+   * @param stackItemsProduced the stack items produced
+   * @param gasCalculator the gas calculator
+   */
+  AbstractCallOperation(
       final int opcode,
       final String name,
       final int stackItemsConsumed,
       final int stackItemsProduced,
-      final int opSize,
       final GasCalculator gasCalculator) {
-    super(opcode, name, stackItemsConsumed, stackItemsProduced, opSize, gasCalculator);
+    super(opcode, name, stackItemsConsumed, stackItemsProduced, gasCalculator);
   }
 
   /**
@@ -57,7 +65,9 @@ public abstract class AbstractCallOperation extends AbstractOperation {
    * @param frame The current message frame
    * @return the additional gas to provide the call operation
    */
-  protected abstract long gas(MessageFrame frame);
+  protected long gas(final MessageFrame frame) {
+    return clampedToLong(frame.getStackItem(0));
+  }
 
   /**
    * Returns the account the call is being made to.
@@ -156,8 +166,7 @@ public abstract class AbstractCallOperation extends AbstractOperation {
 
     final long cost = cost(frame);
     if (frame.getRemainingGas() < cost) {
-      return new OperationResult(
-          OptionalLong.of(cost), Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
+      return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
     frame.decrementRemainingGas(cost);
 
@@ -176,48 +185,64 @@ public abstract class AbstractCallOperation extends AbstractOperation {
       frame.incrementRemainingGas(gasAvailableForChildCall(frame) + cost);
       frame.popStackItems(getStackItemsConsumed());
       frame.pushStackItem(UInt256.ZERO);
-      return new OperationResult(OptionalLong.of(cost), Optional.empty());
+      return new OperationResult(cost, null);
     }
 
     final Bytes inputData = frame.readMutableMemory(inputDataOffset(frame), inputDataLength(frame));
 
     final Code code =
         contract == null
-            ? Code.EMPTY_CODE
+            ? CodeV0.EMPTY_CODE
             : evm.getCode(contract.getCodeHash(), contract.getCode());
 
-    final MessageFrame childFrame =
-        MessageFrame.builder()
-            .type(MessageFrame.Type.MESSAGE_CALL)
-            .messageFrameStack(frame.getMessageFrameStack())
-            .worldUpdater(frame.getWorldUpdater().updater())
-            .initialGas(gasAvailableForChildCall(frame))
-            .address(address(frame))
-            .originator(frame.getOriginatorAddress())
-            .contract(to)
-            .gasPrice(frame.getGasPrice())
-            .inputData(inputData)
-            .sender(sender(frame))
-            .value(value(frame))
-            .apparentValue(apparentValue(frame))
-            .code(code)
-            .blockValues(frame.getBlockValues())
-            .depth(frame.getMessageStackDepth() + 1)
-            .isStatic(isStatic(frame))
-            .completer(child -> complete(frame, child))
-            .miningBeneficiary(frame.getMiningBeneficiary())
-            .blockHashLookup(frame.getBlockHashLookup())
-            .maxStackSize(frame.getMaxStackSize())
-            .build();
-    frame.incrementRemainingGas(cost);
+    if (code.isValid()) {
+      final MessageFrame childFrame =
+          MessageFrame.builder()
+              .type(MessageFrame.Type.MESSAGE_CALL)
+              .messageFrameStack(frame.getMessageFrameStack())
+              .worldUpdater(frame.getWorldUpdater().updater())
+              .initialGas(gasAvailableForChildCall(frame))
+              .address(address(frame))
+              .originator(frame.getOriginatorAddress())
+              .contract(to)
+              .gasPrice(frame.getGasPrice())
+              .inputData(inputData)
+              .sender(sender(frame))
+              .value(value(frame))
+              .apparentValue(apparentValue(frame))
+              .code(code)
+              .blockValues(frame.getBlockValues())
+              .depth(frame.getMessageStackDepth() + 1)
+              .isStatic(isStatic(frame))
+              .completer(child -> complete(frame, child))
+              .miningBeneficiary(frame.getMiningBeneficiary())
+              .blockHashLookup(frame.getBlockHashLookup())
+              .maxStackSize(frame.getMaxStackSize())
+              .build();
+      frame.incrementRemainingGas(cost);
 
-    frame.getMessageFrameStack().addFirst(childFrame);
-    frame.setState(MessageFrame.State.CODE_SUSPENDED);
-    return new OperationResult(OptionalLong.of(cost), Optional.empty(), 0);
+      frame.getMessageFrameStack().addFirst(childFrame);
+      frame.setState(MessageFrame.State.CODE_SUSPENDED);
+      return new OperationResult(cost, null, 0);
+    } else {
+      return new OperationResult(cost, ExceptionalHaltReason.INVALID_CODE, 0);
+    }
   }
 
+  /**
+   * Calculates Cost.
+   *
+   * @param frame the frame
+   * @return the long
+   */
   protected abstract long cost(final MessageFrame frame);
 
+  /**
+   * Complete.
+   *
+   * @param frame the frame
+   * @param childFrame the child frame
+   */
   public void complete(final MessageFrame frame, final MessageFrame childFrame) {
     frame.setState(MessageFrame.State.CODE_EXECUTING);
 

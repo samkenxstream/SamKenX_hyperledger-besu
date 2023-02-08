@@ -36,7 +36,7 @@ import org.apache.tuweni.units.bigints.UInt256;
  * not mutable. In other words, objects implementing this interface are not guaranteed to be
  * thread-safe, though some particular implementations may provide such guarantees.
  */
-public interface WorldState extends WorldView {
+public interface WorldState extends WorldView, AutoCloseable {
 
   /**
    * The root hash of the world state this represents.
@@ -62,15 +62,27 @@ public interface WorldState extends WorldView {
    */
   Stream<StreamableAccount> streamAccounts(Bytes32 startKeyHash, int limit);
 
+  /** The Streamable account. */
   class StreamableAccount implements AccountState {
     private final Optional<Address> address;
     private final AccountState accountState;
 
+    /**
+     * Instantiates a new Streamable account.
+     *
+     * @param address the address
+     * @param accountState the account state
+     */
     public StreamableAccount(final Optional<Address> address, final AccountState accountState) {
       this.address = address;
       this.accountState = accountState;
     }
 
+    /**
+     * Gets address.
+     *
+     * @return the address
+     */
     public Optional<Address> getAddress() {
       return address;
     }
@@ -115,5 +127,10 @@ public interface WorldState extends WorldView {
         final Bytes32 startKeyHash, final int limit) {
       return accountState.storageEntriesFrom(startKeyHash, limit);
     }
+  }
+
+  @Override
+  default void close() throws Exception {
+    // default no-op
   }
 }

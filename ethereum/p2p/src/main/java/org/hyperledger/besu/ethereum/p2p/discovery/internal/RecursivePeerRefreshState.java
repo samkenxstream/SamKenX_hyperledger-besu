@@ -93,6 +93,7 @@ public class RecursivePeerRefreshState {
   }
 
   private void addInitialPeers(final List<DiscoveryPeer> initialPeers) {
+    LOG.debug("INITIAL PEERS: {}", initialPeers);
     this.initialPeers = initialPeers;
     for (final DiscoveryPeer peer : initialPeers) {
       final MetadataPeer iterationParticipant =
@@ -190,7 +191,10 @@ public class RecursivePeerRefreshState {
     if (metadataPeer == null) {
       return;
     }
-    LOG.debug("Received neighbours packet with {} neighbours", peers.size());
+    LOG.debug(
+        "Received neighbours packet with {} neighbours from {}",
+        peers.size(),
+        peer.getEnodeURLString());
     for (final DiscoveryPeer receivedDiscoPeer : peers) {
       if (satisfiesMapAdditionCriteria(receivedDiscoPeer)) {
         final MetadataPeer receivedMetadataPeer =

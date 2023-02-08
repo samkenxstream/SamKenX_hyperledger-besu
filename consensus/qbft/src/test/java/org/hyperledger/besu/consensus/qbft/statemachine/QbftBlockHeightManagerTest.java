@@ -58,12 +58,15 @@ import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.blockcreation.BlockCreator.BlockCreationResult;
+import org.hyperledger.besu.ethereum.blockcreation.BlockTransactionSelector.TransactionSelectionResults;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.BlockImporter;
 import org.hyperledger.besu.ethereum.core.Util;
+import org.hyperledger.besu.ethereum.mainnet.BlockImportResult;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.util.Subscribers;
 
@@ -140,12 +143,14 @@ public class QbftBlockHeightManagerTest {
     when(finalState.getBlockTimer()).thenReturn(blockTimer);
     when(finalState.getQuorum()).thenReturn(3);
     when(finalState.getValidatorMulticaster()).thenReturn(validatorMulticaster);
-    when(blockCreator.createBlock(anyLong())).thenReturn(createdBlock);
+    when(blockCreator.createBlock(anyLong()))
+        .thenReturn(new BlockCreationResult(createdBlock, new TransactionSelectionResults()));
 
     when(futureRoundProposalMessageValidator.validateProposalMessage(any())).thenReturn(true);
     when(messageValidatorFactory.createFutureRoundProposalMessageValidator(anyLong(), any()))
         .thenReturn(futureRoundProposalMessageValidator);
     when(messageValidatorFactory.createMessageValidator(any(), any())).thenReturn(messageValidator);
+    when(blockImporter.importBlock(any(), any(), any())).thenReturn(new BlockImportResult(false));
 
     protocolContext =
         new ProtocolContext(
@@ -160,8 +165,7 @@ public class QbftBlockHeightManagerTest {
             invocation -> {
               final int round = invocation.getArgument(1);
               final ConsensusRoundIdentifier roundId = new ConsensusRoundIdentifier(1, round);
-              final RoundState createdRoundState =
-                  new RoundState(roundId, finalState.getQuorum(), messageValidator);
+              final RoundState createdRoundState = new RoundState(roundId, 3, messageValidator);
               return new QbftRound(
                   createdRoundState,
                   blockCreator,

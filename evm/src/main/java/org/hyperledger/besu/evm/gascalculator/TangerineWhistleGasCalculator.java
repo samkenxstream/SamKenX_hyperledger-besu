@@ -20,7 +20,9 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.internal.Words;
 
+/** The Tangerine whistle gas calculator. */
 public class TangerineWhistleGasCalculator extends HomesteadGasCalculator {
 
   private static final long BALANCE_OPERATION_GAS_COST = 400L;
@@ -82,7 +84,7 @@ public class TangerineWhistleGasCalculator extends HomesteadGasCalculator {
   }
 
   private static long gasCap(final long remaining, final long stipend) {
-    return Math.min(allButOneSixtyFourth(remaining), stipend);
+    return Words.unsignedMin(allButOneSixtyFourth(remaining), stipend);
   }
 
   @Override

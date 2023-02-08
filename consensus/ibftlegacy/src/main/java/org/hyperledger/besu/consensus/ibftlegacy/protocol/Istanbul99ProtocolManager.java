@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManager;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.peervalidation.PeerValidator;
+import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
@@ -35,6 +36,21 @@ import java.util.Optional;
 /** This allows for interoperability with Quorum, but shouldn't be used otherwise. */
 public class Istanbul99ProtocolManager extends EthProtocolManager {
 
+  /**
+   * Instantiates a new Istanbul99 protocol manager.
+   *
+   * @param blockchain the blockchain
+   * @param networkId the network id
+   * @param worldStateArchive the world state archive
+   * @param transactionPool the transaction pool
+   * @param ethereumWireProtocolConfiguration the ethereum wire protocol configuration
+   * @param ethPeers the eth peers
+   * @param ethMessages the eth messages
+   * @param ethContext the eth context
+   * @param peerValidators the peer validators
+   * @param synchronizerConfiguration the synchronizer configuration
+   * @param scheduler the scheduler
+   */
   public Istanbul99ProtocolManager(
       final Blockchain blockchain,
       final BigInteger networkId,
@@ -45,7 +61,7 @@ public class Istanbul99ProtocolManager extends EthProtocolManager {
       final EthMessages ethMessages,
       final EthContext ethContext,
       final List<PeerValidator> peerValidators,
-      final boolean fastSyncEnabled,
+      final SynchronizerConfiguration synchronizerConfiguration,
       final EthScheduler scheduler) {
     super(
         blockchain,
@@ -58,7 +74,7 @@ public class Istanbul99ProtocolManager extends EthProtocolManager {
         ethContext,
         peerValidators,
         Optional.empty(),
-        fastSyncEnabled,
+        synchronizerConfiguration,
         scheduler);
   }
 

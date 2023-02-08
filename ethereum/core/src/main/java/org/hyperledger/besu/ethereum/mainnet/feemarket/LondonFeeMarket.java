@@ -17,11 +17,9 @@ package org.hyperledger.besu.ethereum.mainnet.feemarket;
 import org.hyperledger.besu.config.GenesisConfigFile;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Transaction;
-import org.hyperledger.besu.ethereum.core.feemarket.BaseFee;
 import org.hyperledger.besu.ethereum.core.feemarket.TransactionPriceCalculator;
 
 import java.util.Optional;
-import java.util.function.Supplier;
 
 import org.apache.tuweni.units.bigints.UInt256s;
 import org.slf4j.Logger;
@@ -32,14 +30,13 @@ public class LondonFeeMarket implements BaseFeeMarket {
       GenesisConfigFile.BASEFEE_AT_GENESIS_DEFAULT_VALUE;
   static final long DEFAULT_BASEFEE_MAX_CHANGE_DENOMINATOR = 8L;
   static final long DEFAULT_SLACK_COEFFICIENT = 2L;
-  // required for integer arithmetic to work when baseFee > 0
   private static final Wei DEFAULT_BASEFEE_FLOOR = Wei.of(7L);
   private static final Logger LOG = LoggerFactory.getLogger(LondonFeeMarket.class);
 
   private final Wei baseFeeInitialValue;
   private final long londonForkBlockNumber;
   private final TransactionPriceCalculator txPriceCalculator;
-  private Wei baseFeeFloor = DEFAULT_BASEFEE_FLOOR;
+  private final Wei baseFeeFloor;
 
   public LondonFeeMarket(final long londonForkBlockNumber) {
     this(londonForkBlockNumber, Optional.empty());
@@ -50,14 +47,7 @@ public class LondonFeeMarket implements BaseFeeMarket {
     this.txPriceCalculator = TransactionPriceCalculator.eip1559();
     this.londonForkBlockNumber = londonForkBlockNumber;
     this.baseFeeInitialValue = baseFeePerGasOverride.orElse(DEFAULT_BASEFEE_INITIAL_VALUE);
-    if (baseFeeInitialValue.isZero()) {
-      baseFeeFloor = Wei.ZERO;
-    } else if (baseFeeInitialValue.lessThan(DEFAULT_BASEFEE_FLOOR)) {
-      throw new IllegalStateException(
-          String.format(
-              "baseFee must be either 0 or > %s wei to avoid integer arithmetic issues",
-              DEFAULT_BASEFEE_FLOOR));
-    }
+    this.baseFeeFloor = baseFeeInitialValue.isZero() ? Wei.ZERO : DEFAULT_BASEFEE_FLOOR;
   }
 
   @Override
@@ -81,17 +71,7 @@ public class LondonFeeMarket implements BaseFeeMarket {
   }
 
   @Override
-  public Wei minTransactionPriceInNextBlock(
-      final Transaction transaction, final Supplier<Optional<Wei>> baseFeeSupplier) {
-    final Optional<Wei> baseFee = baseFeeSupplier.get();
-    Optional<Wei> minBaseFeeInNextBlock =
-        baseFee.map(bf -> new BaseFee(this, bf).getMinNextValue());
-
-    return this.getTransactionPriceCalculator().price(transaction, minBaseFeeInNextBlock);
-  }
-
-  @Override
-  public boolean satisfiesFloorTxCost(final Transaction txn) {
+  public boolean satisfiesFloorTxFee(final Transaction txn) {
     // ensure effective baseFee is at least above floor
     return txn.getGasPrice()
         .map(Optional::of)
@@ -138,8 +118,13 @@ public class LondonFeeMarket implements BaseFeeMarket {
   }
 
   @Override
-  public boolean isForkBlock(final long blockNumber) {
-    return londonForkBlockNumber == blockNumber;
+  public ValidationMode baseFeeValidationMode(final long blockNumber) {
+    return londonForkBlockNumber == blockNumber ? ValidationMode.INITIAL : ValidationMode.ONGOING;
+  }
+
+  @Override
+  public ValidationMode gasLimitValidationMode(final long blockNumber) {
+    return londonForkBlockNumber == blockNumber ? ValidationMode.INITIAL : ValidationMode.ONGOING;
   }
 
   @Override

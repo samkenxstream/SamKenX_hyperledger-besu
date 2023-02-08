@@ -20,7 +20,18 @@ import org.hyperledger.besu.ethereum.core.Difficulty;
 
 import java.util.Optional;
 
+/** The interface Merge state handler. */
 public interface MergeStateHandler {
 
-  void mergeStateChanged(final boolean isPoS, final Optional<Difficulty> difficultyStoppedAt);
+  /**
+   * Merge state changed.
+   *
+   * @param isPoS the is PoS
+   * @param priorState the prior state
+   * @param difficultyStoppedAt the difficulty stopped at
+   */
+  void mergeStateChanged(
+      final boolean isPoS,
+      final Optional<Boolean> priorState,
+      final Optional<Difficulty> difficultyStoppedAt);
 }

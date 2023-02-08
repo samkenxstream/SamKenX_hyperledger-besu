@@ -15,15 +15,18 @@
 package org.hyperledger.besu.ethereum.mainnet;
 
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
+import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.privacy.storage.PrivateMetadataUpdater;
 
 import java.util.List;
+import java.util.Optional;
 
 /** Processes a block. */
 public interface BlockProcessor {
@@ -70,7 +73,7 @@ public interface BlockProcessor {
    * @param block the block to process
    * @return the block processing result
    */
-  default Result processBlock(
+  default BlockProcessingResult processBlock(
       final Blockchain blockchain, final MutableWorldState worldState, final Block block) {
     return processBlock(
         blockchain,
@@ -78,6 +81,7 @@ public interface BlockProcessor {
         block.getHeader(),
         block.getBody().getTransactions(),
         block.getBody().getOmmers(),
+        block.getBody().getWithdrawals(),
         null);
   }
 
@@ -91,13 +95,14 @@ public interface BlockProcessor {
    * @param ommers the block ommers
    * @return the block processing result
    */
-  default Result processBlock(
+  default BlockProcessingResult processBlock(
       final Blockchain blockchain,
       final MutableWorldState worldState,
       final BlockHeader blockHeader,
       final List<Transaction> transactions,
       final List<BlockHeader> ommers) {
-    return processBlock(blockchain, worldState, blockHeader, transactions, ommers, null);
+    return processBlock(
+        blockchain, worldState, blockHeader, transactions, ommers, Optional.empty(), null);
   }
 
   /**
@@ -108,15 +113,17 @@ public interface BlockProcessor {
    * @param blockHeader the block header for the block
    * @param transactions the transactions in the block
    * @param ommers the block ommers
+   * @param withdrawals the withdrawals for the block
    * @param privateMetadataUpdater the updater used to update the private metadata for the block
    * @return the block processing result
    */
-  Result processBlock(
+  BlockProcessingResult processBlock(
       Blockchain blockchain,
       MutableWorldState worldState,
       BlockHeader blockHeader,
       List<Transaction> transactions,
       List<BlockHeader> ommers,
+      Optional<List<Withdrawal>> withdrawals,
       PrivateMetadataUpdater privateMetadataUpdater);
 
   /**
@@ -128,7 +135,7 @@ public interface BlockProcessor {
    * @param block the block to process
    * @return the block processing result
    */
-  default Result processBlock(
+  default BlockProcessingResult processBlock(
       final Blockchain blockchain,
       final MutableWorldState worldState,
       final MutableWorldState privateWorldState,

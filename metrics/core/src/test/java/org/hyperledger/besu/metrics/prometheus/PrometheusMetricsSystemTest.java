@@ -41,6 +41,8 @@ import java.util.Comparator;
 import java.util.List;
 
 import com.google.common.collect.ImmutableSet;
+import io.opentelemetry.api.GlobalOpenTelemetry;
+import org.junit.Before;
 import org.junit.Test;
 
 public class PrometheusMetricsSystemTest {
@@ -49,6 +51,11 @@ public class PrometheusMetricsSystemTest {
       Comparator.<Observation, String>comparing(observation -> observation.getCategory().getName())
           .thenComparing(Observation::getMetricName)
           .thenComparing((o1, o2) -> o1.getLabels().equals(o2.getLabels()) ? 0 : 1);
+
+  @Before
+  public void resetGlobalOpenTelemetry() {
+    GlobalOpenTelemetry.resetForTest();
+  }
 
   private final ObservableMetricsSystem metricsSystem =
       new PrometheusMetricsSystem(DEFAULT_METRIC_CATEGORIES, true);
@@ -210,13 +217,13 @@ public class PrometheusMetricsSystemTest {
   }
 
   @Test
-  public void shouldNotAllowDuplicateGaugeCreation() {
-    // Gauges have a reference to the source of their data so creating it twice will still only
-    // pull data from the first instance, possibly leaking memory and likely returning the wrong
-    // results.
+  public void shouldAllowDuplicateGaugeCreation() {
+    // When we are pushing the same gauge, the first one will be unregistered and the new one will
+    // be used
     metricsSystem.createGauge(JVM, "myValue", "Help", () -> 7.0);
-    assertThatThrownBy(() -> metricsSystem.createGauge(JVM, "myValue", "Help", () -> 7.0))
-        .isInstanceOf(IllegalArgumentException.class);
+    metricsSystem.createGauge(JVM, "myValue", "Help", () -> 7.0);
+    assertThat(metricsSystem.streamObservations())
+        .containsExactlyInAnyOrder(new Observation(JVM, "myValue", 7.0, emptyList()));
   }
 
   @Test

@@ -19,6 +19,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.tracing.Trace;
 import org.hyperledger.besu.ethereum.debug.TraceFrame;
 import org.hyperledger.besu.evm.Code;
+import org.hyperledger.besu.evm.code.CodeV0;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 
 import java.util.ArrayDeque;
@@ -72,9 +73,9 @@ public class VmTraceGenerator {
       Optional<TraceFrame> nextTraceFrame =
           iter.hasNext() ? Optional.of(iter.next()) : Optional.empty();
       while (nextTraceFrame.isPresent()) {
-        final TraceFrame currentTraceFrame = nextTraceFrame.get();
+        final TraceFrame traceFrame = nextTraceFrame.get();
         nextTraceFrame = iter.hasNext() ? Optional.of(iter.next()) : Optional.empty();
-        addFrame(currentTraceFrame, nextTraceFrame);
+        addFrame(traceFrame, nextTraceFrame);
       }
     }
     return rootVmTrace;
@@ -286,7 +287,7 @@ public class VmTraceGenerator {
     // set smart contract code
     if (currentTrace != null && "0x".equals(currentTrace.getCode())) {
       currentTrace.setCode(
-          currentTraceFrame.getMaybeCode().orElse(Code.EMPTY_CODE).getBytes().toHexString());
+          currentTraceFrame.getMaybeCode().orElse(CodeV0.EMPTY_CODE).getBytes().toHexString());
     }
   }
 

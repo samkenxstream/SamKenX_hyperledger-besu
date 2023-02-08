@@ -111,7 +111,9 @@ public class EthGetTransactionReceiptTest {
           GasLimitCalculator.constant(),
           FeeMarket.legacy(),
           null,
-          Optional.of(PoWHasher.ETHASH_LIGHT));
+          Optional.of(PoWHasher.ETHASH_LIGHT),
+          null,
+          Optional.empty());
   private final ProtocolSpec statusTransactionTypeSpec =
       new ProtocolSpec(
           "status",
@@ -136,7 +138,9 @@ public class EthGetTransactionReceiptTest {
           GasLimitCalculator.constant(),
           FeeMarket.legacy(),
           null,
-          Optional.of(PoWHasher.ETHASH_LIGHT));
+          Optional.of(PoWHasher.ETHASH_LIGHT),
+          null,
+          Optional.empty());
 
   @SuppressWarnings("unchecked")
   private final ProtocolSchedule protocolSchedule = mock(ProtocolSchedule.class);
@@ -164,6 +168,7 @@ public class EthGetTransactionReceiptTest {
     final TransactionReceiptStatusResult result =
         (TransactionReceiptStatusResult) response.getResult();
 
+    assertThat(result.getType()).isEqualTo("0x0");
     assertThat(result.getStatus()).isEqualTo("0x1");
   }
 
@@ -178,6 +183,7 @@ public class EthGetTransactionReceiptTest {
         (JsonRpcSuccessResponse) ethGetTransactionReceipt.response(request);
     final TransactionReceiptRootResult result = (TransactionReceiptRootResult) response.getResult();
 
+    assertThat(result.getType()).isEqualTo("0x0");
     assertThat(result.getRoot()).isEqualTo(stateRoot.toString());
   }
 
@@ -200,6 +206,7 @@ public class EthGetTransactionReceiptTest {
         (TransactionReceiptStatusResult) response.getResult();
 
     assertThat(result.getStatus()).isEqualTo("0x1");
+    assertThat(result.getType()).isEqualTo("0x2");
     assertThat(Wei.fromHexString(result.getEffectiveGasPrice()))
         .isEqualTo(
             UInt256s.min(

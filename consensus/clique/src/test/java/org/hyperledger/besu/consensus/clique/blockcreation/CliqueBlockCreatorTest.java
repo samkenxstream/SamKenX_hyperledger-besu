@@ -47,7 +47,7 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.Util;
-import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
+import org.hyperledger.besu.ethereum.eth.transactions.ImmutableTransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.sorter.GasPricePendingTransactionsSorter;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
@@ -56,14 +56,15 @@ import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.testutil.TestClock;
 
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 
 import com.google.common.collect.Lists;
 import org.apache.tuweni.bytes.Bytes;
 import org.assertj.core.api.Java6Assertions;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 public class CliqueBlockCreatorTest {
 
@@ -83,7 +84,7 @@ public class CliqueBlockCreatorTest {
   private ValidatorProvider validatorProvider;
   private VoteProvider voteProvider;
 
-  @Before
+  @BeforeEach
   public void setup() {
     protocolSchedule =
         CliqueProtocolSchedule.create(
@@ -131,12 +132,10 @@ public class CliqueBlockCreatorTest {
             () -> Optional.of(10_000_000L),
             parent -> extraData,
             new GasPricePendingTransactionsSorter(
-                TransactionPoolConfiguration.DEFAULT_TX_RETENTION_HOURS,
-                5,
-                TestClock.fixed(),
+                ImmutableTransactionPoolConfiguration.builder().txPoolMaxSize(5).build(),
+                TestClock.system(ZoneId.systemDefault()),
                 metricsSystem,
-                blockchain::getChainHeadHeader,
-                TransactionPoolConfiguration.DEFAULT_PRICE_BUMP),
+                blockchain::getChainHeadHeader),
             protocolContext,
             protocolSchedule,
             proposerNodeKey,
@@ -145,7 +144,7 @@ public class CliqueBlockCreatorTest {
             blockchain.getChainHeadHeader(),
             epochManager);
 
-    final Block createdBlock = blockCreator.createBlock(5L);
+    final Block createdBlock = blockCreator.createBlock(5L).getBlock();
 
     Java6Assertions.assertThat(CliqueHelpers.getProposerOfBlock(createdBlock.getHeader()))
         .isEqualTo(proposerAddress);
@@ -166,12 +165,10 @@ public class CliqueBlockCreatorTest {
             () -> Optional.of(10_000_000L),
             parent -> extraData,
             new GasPricePendingTransactionsSorter(
-                TransactionPoolConfiguration.DEFAULT_TX_RETENTION_HOURS,
-                5,
-                TestClock.fixed(),
+                ImmutableTransactionPoolConfiguration.builder().txPoolMaxSize(5).build(),
+                TestClock.system(ZoneId.systemDefault()),
                 metricsSystem,
-                blockchain::getChainHeadHeader,
-                TransactionPoolConfiguration.DEFAULT_PRICE_BUMP),
+                blockchain::getChainHeadHeader),
             protocolContext,
             protocolSchedule,
             proposerNodeKey,
@@ -180,7 +177,7 @@ public class CliqueBlockCreatorTest {
             blockchain.getChainHeadHeader(),
             epochManager);
 
-    final Block createdBlock = blockCreator.createBlock(0L);
+    final Block createdBlock = blockCreator.createBlock(0L).getBlock();
     assertThat(createdBlock.getHeader().getNonce()).isEqualTo(CliqueBlockInterface.ADD_NONCE);
     assertThat(createdBlock.getHeader().getCoinbase()).isEqualTo(a1);
   }
@@ -194,7 +191,10 @@ public class CliqueBlockCreatorTest {
         CliqueExtraData.createWithoutProposerSeal(Bytes.wrap(new byte[32]), validatorList);
     final Address a1 = Address.fromHexString("5");
     final Address coinbase = AddressHelpers.ofValue(1);
-    when(validatorProvider.getVoteProviderAtHead().get().getVoteAfterBlock(any(), any()))
+
+    final VoteProvider mockVoteProvider = mock(VoteProvider.class);
+    when(validatorProvider.getVoteProviderAtHead()).thenReturn(Optional.of(mockVoteProvider));
+    when(mockVoteProvider.getVoteAfterBlock(any(), any()))
         .thenReturn(Optional.of(new ValidatorVote(VoteType.ADD, coinbase, a1)));
 
     final CliqueBlockCreator blockCreator =
@@ -203,12 +203,10 @@ public class CliqueBlockCreatorTest {
             () -> Optional.of(10_000_000L),
             parent -> extraData,
             new GasPricePendingTransactionsSorter(
-                TransactionPoolConfiguration.DEFAULT_TX_RETENTION_HOURS,
-                5,
-                TestClock.fixed(),
+                ImmutableTransactionPoolConfiguration.builder().txPoolMaxSize(5).build(),
+                TestClock.system(ZoneId.systemDefault()),
                 metricsSystem,
-                blockchain::getChainHeadHeader,
-                TransactionPoolConfiguration.DEFAULT_PRICE_BUMP),
+                blockchain::getChainHeadHeader),
             protocolContext,
             protocolSchedule,
             proposerNodeKey,
@@ -217,7 +215,7 @@ public class CliqueBlockCreatorTest {
             blockchain.getChainHeadHeader(),
             epochManager);
 
-    final Block createdBlock = blockCreator.createBlock(0L);
+    final Block createdBlock = blockCreator.createBlock(0L).getBlock();
     assertThat(createdBlock.getHeader().getNonce()).isEqualTo(CliqueBlockInterface.DROP_NONCE);
     assertThat(createdBlock.getHeader().getCoinbase()).isEqualTo(Address.fromHexString("0"));
   }

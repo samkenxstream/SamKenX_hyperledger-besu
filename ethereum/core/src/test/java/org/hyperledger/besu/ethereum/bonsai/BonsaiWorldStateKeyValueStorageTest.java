@@ -44,7 +44,7 @@ public class BonsaiWorldStateKeyValueStorageTest {
   @Test
   public void getCode_returnsEmpty() {
     final BonsaiWorldStateKeyValueStorage storage = emptyStorage();
-    assertThat(storage.getCode(null, Hash.EMPTY)).isEmpty();
+    assertThat(storage.getCode(Hash.EMPTY, Hash.EMPTY)).contains(Bytes.EMPTY);
   }
 
   @Test
@@ -85,7 +85,8 @@ public class BonsaiWorldStateKeyValueStorageTest {
         .putCode(Hash.EMPTY, Bytes.EMPTY)
         .commit();
 
-    assertThat(storage.getCode(null, Hash.EMPTY)).contains(MerklePatriciaTrie.EMPTY_TRIE_NODE);
+    assertThat(storage.getCode(Hash.hash(MerklePatriciaTrie.EMPTY_TRIE_NODE), Hash.EMPTY))
+        .contains(MerklePatriciaTrie.EMPTY_TRIE_NODE);
   }
 
   @Test
@@ -94,7 +95,7 @@ public class BonsaiWorldStateKeyValueStorageTest {
     final BonsaiWorldStateKeyValueStorage storage = emptyStorage();
     storage.updater().putCode(Hash.EMPTY, bytes).commit();
 
-    assertThat(storage.getCode(null, Hash.EMPTY)).contains(bytes);
+    assertThat(storage.getCode(Hash.hash(bytes), Hash.EMPTY)).contains(bytes);
   }
 
   @Test
@@ -164,13 +165,13 @@ public class BonsaiWorldStateKeyValueStorageTest {
   @Test
   public void getAccount_loadFromTrieWhenEmpty() {
     final BonsaiWorldStateKeyValueStorage storage = spy(emptyStorage());
-    MerklePatriciaTrie<Bytes32, Bytes> trie = TrieGenerator.generateTrie(storage, 1);
+    MerklePatriciaTrie<Bytes, Bytes> trie = TrieGenerator.generateTrie(storage, 1);
     final TreeMap<Bytes32, Bytes> accounts =
         (TreeMap<Bytes32, Bytes>)
             trie.entriesFrom(root -> StorageEntriesCollector.collectEntries(root, Hash.ZERO, 1));
 
     // save world state root hash
-    final BonsaiWorldStateKeyValueStorage.Updater updater = storage.updater();
+    final BonsaiWorldStateKeyValueStorage.BonsaiUpdater updater = storage.updater();
     updater
         .getTrieBranchStorageTransaction()
         .put(WORLD_ROOT_HASH_KEY, trie.getRootHash().toArrayUnsafe());
@@ -188,7 +189,7 @@ public class BonsaiWorldStateKeyValueStorageTest {
   @Test
   public void getStorage_loadFromTrieWhenEmpty() {
     final BonsaiWorldStateKeyValueStorage storage = spy(emptyStorage());
-    final MerklePatriciaTrie<Bytes32, Bytes> trie = TrieGenerator.generateTrie(storage, 1);
+    final MerklePatriciaTrie<Bytes, Bytes> trie = TrieGenerator.generateTrie(storage, 1);
     final TreeMap<Bytes32, Bytes> accounts =
         (TreeMap<Bytes32, Bytes>)
             trie.entriesFrom(root -> StorageEntriesCollector.collectEntries(root, Hash.ZERO, 1));
@@ -210,7 +211,7 @@ public class BonsaiWorldStateKeyValueStorageTest {
                 root -> StorageEntriesCollector.collectEntries(root, Hash.ZERO, 1));
 
     // save world state root hash
-    final BonsaiWorldStateKeyValueStorage.Updater updater = storage.updater();
+    final BonsaiWorldStateKeyValueStorage.BonsaiUpdater updater = storage.updater();
     updater
         .getTrieBranchStorageTransaction()
         .put(WORLD_ROOT_HASH_KEY, trie.getRootHash().toArrayUnsafe());
@@ -240,8 +241,8 @@ public class BonsaiWorldStateKeyValueStorageTest {
     final Bytes bytesC = Bytes.fromHexString("0x123456");
 
     final BonsaiWorldStateKeyValueStorage storage = emptyStorage();
-    final BonsaiWorldStateKeyValueStorage.Updater updaterA = storage.updater();
-    final BonsaiWorldStateKeyValueStorage.Updater updaterB = storage.updater();
+    final BonsaiWorldStateKeyValueStorage.BonsaiUpdater updaterA = storage.updater();
+    final BonsaiWorldStateKeyValueStorage.BonsaiUpdater updaterB = storage.updater();
 
     updaterA.putCode(accountHashA, bytesA);
     updaterB.putCode(accountHashB, bytesA);
@@ -251,9 +252,8 @@ public class BonsaiWorldStateKeyValueStorageTest {
     updaterA.commit();
     updaterB.commit();
 
-    assertThat(storage.getCode(null, accountHashA)).contains(bytesA);
-    assertThat(storage.getCode(null, accountHashB)).contains(bytesB);
-    assertThat(storage.getCode(null, accountHashD)).contains(bytesC);
+    assertThat(storage.getCode(Hash.hash(bytesB), accountHashB)).contains(bytesB);
+    assertThat(storage.getCode(Hash.hash(bytesC), accountHashD)).contains(bytesC);
   }
 
   @Test
@@ -265,7 +265,7 @@ public class BonsaiWorldStateKeyValueStorageTest {
   public void isWorldStateAvailable_StateAvailableByRootHash() {
 
     final BonsaiWorldStateKeyValueStorage storage = emptyStorage();
-    final BonsaiWorldStateKeyValueStorage.Updater updater = storage.updater();
+    final BonsaiWorldStateKeyValueStorage.BonsaiUpdater updater = storage.updater();
     final Bytes rootHashKey = Bytes32.fromHexString("0x01");
     updater.getTrieBranchStorageTransaction().put(WORLD_ROOT_HASH_KEY, rootHashKey.toArrayUnsafe());
     updater.commit();
@@ -277,7 +277,7 @@ public class BonsaiWorldStateKeyValueStorageTest {
   public void isWorldStateAvailable_afterCallingSaveWorldstate() {
 
     final BonsaiWorldStateKeyValueStorage storage = emptyStorage();
-    final BonsaiWorldStateKeyValueStorage.Updater updater = storage.updater();
+    final BonsaiWorldStateKeyValueStorage.BonsaiUpdater updater = storage.updater();
 
     final Bytes blockHash = Bytes32.fromHexString("0x01");
     final Bytes32 nodeHashKey = Bytes32.fromHexString("0x02");

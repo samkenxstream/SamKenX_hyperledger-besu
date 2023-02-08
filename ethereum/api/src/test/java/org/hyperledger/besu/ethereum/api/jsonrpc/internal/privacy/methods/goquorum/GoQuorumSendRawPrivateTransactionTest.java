@@ -59,6 +59,7 @@ import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 
 @RunWith(MockitoJUnitRunner.class)
+@SuppressWarnings("DirectInvocationOnMock")
 public class GoQuorumSendRawPrivateTransactionTest {
 
   static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
@@ -171,7 +172,7 @@ public class GoQuorumSendRawPrivateTransactionTest {
   @Test
   public void transactionWithNonceAboveAccountNonceIsRejected() {
     verifyErrorForInvalidTransaction(
-        TransactionInvalidReason.INCORRECT_NONCE, JsonRpcError.INCORRECT_NONCE);
+        TransactionInvalidReason.NONCE_TOO_HIGH, JsonRpcError.NONCE_TOO_HIGH);
   }
 
   @Test
@@ -289,7 +290,8 @@ public class GoQuorumSendRawPrivateTransactionTest {
                 Bytes.fromHexString(
                     "0x8411b12666f68ef74cace3615c9d5a377729d03f")), // sender public address
             Optional.empty(),
-            Optional.of(BigInteger.valueOf(37)));
+            Optional.of(BigInteger.valueOf(37)),
+            Optional.empty());
     publicTransaction.writeTo(bvrlp);
     return bvrlp.encoded().toHexString();
   }

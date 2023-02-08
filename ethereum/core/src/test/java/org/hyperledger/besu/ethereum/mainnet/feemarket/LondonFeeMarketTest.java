@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethereum.mainnet.feemarket;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
@@ -42,7 +41,7 @@ public class LondonFeeMarketTest {
             .createTransaction(KEY_PAIR1);
 
     final LondonFeeMarket londonFeeMarket = new LondonFeeMarket(0);
-    assertThat(londonFeeMarket.satisfiesFloorTxCost(transaction)).isTrue();
+    assertThat(londonFeeMarket.satisfiesFloorTxFee(transaction)).isTrue();
   }
 
   @Test
@@ -56,7 +55,7 @@ public class LondonFeeMarketTest {
             .createTransaction(KEY_PAIR1);
 
     final LondonFeeMarket londonFeeMarket = new LondonFeeMarket(0);
-    assertThat(londonFeeMarket.satisfiesFloorTxCost(transaction)).isFalse();
+    assertThat(londonFeeMarket.satisfiesFloorTxFee(transaction)).isFalse();
   }
 
   @Test
@@ -70,12 +69,6 @@ public class LondonFeeMarketTest {
             .createTransaction(KEY_PAIR1);
 
     final LondonFeeMarket londonFeeMarket = new LondonFeeMarket(0, Optional.of(Wei.ZERO));
-    assertThat(londonFeeMarket.satisfiesFloorTxCost(transaction)).isTrue();
-  }
-
-  @Test
-  public void throwsWhenBaseFeeOverrideIsNonZeroAndBelowFloor() {
-    assertThatThrownBy(() -> new LondonFeeMarket(0, Optional.of(Wei.of(6))))
-        .isInstanceOf(IllegalStateException.class);
+    assertThat(londonFeeMarket.satisfiesFloorTxFee(transaction)).isTrue();
   }
 }

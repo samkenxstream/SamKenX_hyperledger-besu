@@ -20,10 +20,12 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.enclave.Enclave;
 import org.hyperledger.besu.enclave.EnclaveClientException;
 import org.hyperledger.besu.enclave.types.ReceiveResponse;
+import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.privacy.PrivateStateGenesisAllocator;
 import org.hyperledger.besu.ethereum.privacy.PrivateStateRehydration;
 import org.hyperledger.besu.ethereum.privacy.PrivateStateRootResolver;
@@ -50,7 +52,7 @@ public class PrivacyBlockProcessor implements BlockProcessor {
   private static final Logger LOG = LoggerFactory.getLogger(PrivacyBlockProcessor.class);
 
   private final BlockProcessor blockProcessor;
-  private final ProtocolSchedule protocolSchedule;
+  private final HeaderBasedProtocolSchedule protocolSchedule;
   private final Enclave enclave;
   private final PrivateStateStorage privateStateStorage;
   private final WorldStateArchive privateWorldStateArchive;
@@ -60,7 +62,7 @@ public class PrivacyBlockProcessor implements BlockProcessor {
 
   public PrivacyBlockProcessor(
       final BlockProcessor blockProcessor,
-      final ProtocolSchedule protocolSchedule,
+      final HeaderBasedProtocolSchedule protocolSchedule,
       final Enclave enclave,
       final PrivateStateStorage privateStateStorage,
       final WorldStateArchive privateWorldStateArchive,
@@ -80,12 +82,13 @@ public class PrivacyBlockProcessor implements BlockProcessor {
   }
 
   @Override
-  public Result processBlock(
+  public BlockProcessingResult processBlock(
       final Blockchain blockchain,
       final MutableWorldState worldState,
       final BlockHeader blockHeader,
       final List<Transaction> transactions,
       final List<BlockHeader> ommers,
+      final Optional<List<Withdrawal>> withdrawals,
       final PrivateMetadataUpdater privateMetadataUpdater) {
 
     if (privateMetadataUpdater != null) {
@@ -97,9 +100,15 @@ public class PrivacyBlockProcessor implements BlockProcessor {
     final PrivateMetadataUpdater metadataUpdater =
         new PrivateMetadataUpdater(blockHeader, privateStateStorage);
 
-    final Result result =
+    final BlockProcessingResult result =
         blockProcessor.processBlock(
-            blockchain, worldState, blockHeader, transactions, ommers, metadataUpdater);
+            blockchain,
+            worldState,
+            blockHeader,
+            transactions,
+            ommers,
+            withdrawals,
+            metadataUpdater);
     metadataUpdater.commit();
     return result;
   }

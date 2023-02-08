@@ -19,43 +19,57 @@ import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 
-import java.util.Optional;
-import java.util.OptionalLong;
-
 import org.apache.tuweni.bytes.Bytes;
 
+/** The Swap operation. */
 public class SwapOperation extends AbstractFixedCostOperation {
 
+  /** The constant SWAP_BASE. */
+  public static final int SWAP_BASE = 0x8F;
+  /** The Swap operation success result. */
+  static final OperationResult swapSuccess = new OperationResult(3, null);
+
   private final int index;
+  /** The operation result due to underflow. */
   protected final Operation.OperationResult underflowResponse;
 
+  /**
+   * Instantiates a new Swap operation.
+   *
+   * @param index the index
+   * @param gasCalculator the gas calculator
+   */
   public SwapOperation(final int index, final GasCalculator gasCalculator) {
     super(
-        0x90 + index - 1,
+        SWAP_BASE + index,
         "SWAP" + index,
         index + 1,
         index + 1,
-        1,
         gasCalculator,
         gasCalculator.getVeryLowTierGasCost());
     this.index = index;
     this.underflowResponse =
-        new Operation.OperationResult(
-            OptionalLong.of(gasCost), Optional.of(ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS));
+        new Operation.OperationResult(gasCost, ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
   }
 
   @Override
   public Operation.OperationResult executeFixedCostOperation(
       final MessageFrame frame, final EVM evm) {
-    // getStackItem doesn't under/overflow.  Check explicitly.
-    if (frame.stackSize() < getStackItemsConsumed()) {
-      return underflowResponse;
-    }
+    return staticOperation(frame, index);
+  }
 
+  /**
+   * Performs swap operation.
+   *
+   * @param frame the frame
+   * @param index the index
+   * @return the operation result
+   */
+  public static OperationResult staticOperation(final MessageFrame frame, final int index) {
     final Bytes tmp = frame.getStackItem(0);
     frame.setStackItem(0, frame.getStackItem(index));
     frame.setStackItem(index, tmp);
 
-    return successResponse;
+    return swapSuccess;
   }
 }

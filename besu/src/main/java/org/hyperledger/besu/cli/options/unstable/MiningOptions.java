@@ -15,12 +15,14 @@
 package org.hyperledger.besu.cli.options.unstable;
 
 import static org.hyperledger.besu.ethereum.core.MiningParameters.DEFAULT_MAX_OMMERS_DEPTH;
+import static org.hyperledger.besu.ethereum.core.MiningParameters.DEFAULT_POS_BLOCK_CREATION_MAX_TIME;
 import static org.hyperledger.besu.ethereum.core.MiningParameters.DEFAULT_POW_JOB_TTL;
 import static org.hyperledger.besu.ethereum.core.MiningParameters.DEFAULT_REMOTE_SEALERS_LIMIT;
 import static org.hyperledger.besu.ethereum.core.MiningParameters.DEFAULT_REMOTE_SEALERS_TTL;
 
 import picocli.CommandLine;
 
+/** The Mining CLI options. */
 public class MiningOptions {
 
   @CommandLine.Option(
@@ -58,27 +60,73 @@ public class MiningOptions {
       description = "Extranonce for Stratum network miners (default: ${DEFAULT-VALUE})")
   private String stratumExtranonce = "080c";
 
+  @CommandLine.Option(
+      hidden = true,
+      names = {"--Xpos-block-creation-max-time"},
+      description =
+          "Specifies the maximum time, in milliseconds, a PoS block creation jobs is allowed to run. Must be positive and ≤ 12000 (default: ${DEFAULT-VALUE} milliseconds)")
+  private final Long posBlockCreationMaxTime = DEFAULT_POS_BLOCK_CREATION_MAX_TIME;
+
+  /**
+   * Create mining options.
+   *
+   * @return the mining options
+   */
   public static MiningOptions create() {
     return new MiningOptions();
   }
 
+  /**
+   * Gets remote sealers limit.
+   *
+   * @return the remote sealers limit
+   */
   public Integer getRemoteSealersLimit() {
     return remoteSealersLimit;
   }
 
+  /**
+   * Gets remote sealers time to live.
+   *
+   * @return the remote sealers time to live
+   */
   public Long getRemoteSealersTimeToLive() {
     return remoteSealersTimeToLive;
   }
 
+  /**
+   * Gets stratum extra nonce.
+   *
+   * @return the stratum extra nonce
+   */
   public String getStratumExtranonce() {
     return stratumExtranonce;
   }
 
+  /**
+   * Gets pow job time to live.
+   *
+   * @return the pow job time to live
+   */
   public Long getPowJobTimeToLive() {
     return powJobTimeToLive;
   }
 
+  /**
+   * Gets max ommers depth.
+   *
+   * @return the max ommers depth
+   */
   public int getMaxOmmersDepth() {
     return maxOmmersDepth;
+  }
+
+  /**
+   * Gets pos block creation max time.
+   *
+   * @return the pos block creation max time
+   */
+  public Long getPosBlockCreationMaxTime() {
+    return posBlockCreationMaxTime;
   }
 }

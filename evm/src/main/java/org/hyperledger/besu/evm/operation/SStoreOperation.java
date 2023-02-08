@@ -21,27 +21,40 @@ import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 
-import java.util.Optional;
-import java.util.OptionalLong;
-
+import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
 import org.apache.tuweni.units.bigints.UInt256;
 
+/** The SStore operation. */
 public class SStoreOperation extends AbstractOperation {
 
+  /** The constant FRONTIER_MINIMUM. */
   public static final long FRONTIER_MINIMUM = 0L;
+  /** The constant EIP_1706_MINIMUM. */
   public static final long EIP_1706_MINIMUM = 2300L;
 
+  /** The constant ILLEGAL_STATE_CHANGE. */
   protected static final OperationResult ILLEGAL_STATE_CHANGE =
-      new OperationResult(
-          OptionalLong.of(0L), Optional.of(ExceptionalHaltReason.ILLEGAL_STATE_CHANGE));
+      new OperationResult(0L, ExceptionalHaltReason.ILLEGAL_STATE_CHANGE);
 
   private final long minimumGasRemaining;
 
+  /**
+   * Instantiates a new SStore operation.
+   *
+   * @param gasCalculator the gas calculator
+   * @param minimumGasRemaining the minimum gas remaining
+   */
   public SStoreOperation(final GasCalculator gasCalculator, final long minimumGasRemaining) {
-    super(0x55, "SSTORE", 2, 0, 1, gasCalculator);
+    super(0x55, "SSTORE", 2, 0, gasCalculator);
     this.minimumGasRemaining = minimumGasRemaining;
   }
 
+  /**
+   * Gets minimum gas remaining.
+   *
+   * @return the minimum gas remaining
+   */
   public long getMinimumGasRemaining() {
     return minimumGasRemaining;
   }
@@ -50,7 +63,7 @@ public class SStoreOperation extends AbstractOperation {
   public OperationResult execute(final MessageFrame frame, final EVM evm) {
 
     final UInt256 key = UInt256.fromBytes(frame.popStackItem());
-    final UInt256 value = UInt256.fromBytes(frame.popStackItem());
+    final UInt256 newValue = UInt256.fromBytes(frame.popStackItem());
 
     final MutableAccount account =
         frame.getWorldUpdater().getAccount(frame.getRecipientAddress()).getMutable();
@@ -60,28 +73,31 @@ public class SStoreOperation extends AbstractOperation {
 
     final Address address = account.getAddress();
     final boolean slotIsWarm = frame.warmUpStorage(address, key);
+    final Supplier<UInt256> currentValueSupplier =
+        Suppliers.memoize(() -> account.getStorageValue(key));
+    final Supplier<UInt256> originalValueSupplier =
+        Suppliers.memoize(() -> account.getOriginalStorageValue(key));
+
     final long cost =
-        gasCalculator().calculateStorageCost(account, key, value)
+        gasCalculator().calculateStorageCost(newValue, currentValueSupplier, originalValueSupplier)
             + (slotIsWarm ? 0L : gasCalculator().getColdSloadCost());
 
     final long remainingGas = frame.getRemainingGas();
     if (frame.isStatic()) {
-      return new OperationResult(
-          OptionalLong.of(remainingGas), Optional.of(ExceptionalHaltReason.ILLEGAL_STATE_CHANGE));
+      return new OperationResult(remainingGas, ExceptionalHaltReason.ILLEGAL_STATE_CHANGE);
     } else if (remainingGas < cost) {
-      return new OperationResult(
-          OptionalLong.of(cost), Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
+      return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     } else if (remainingGas <= minimumGasRemaining) {
-      return new OperationResult(
-          OptionalLong.of(minimumGasRemaining),
-          Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
+      return new OperationResult(minimumGasRemaining, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
 
     // Increment the refund counter.
-    frame.incrementGasRefund(gasCalculator().calculateStorageRefundAmount(account, key, value));
+    frame.incrementGasRefund(
+        gasCalculator()
+            .calculateStorageRefundAmount(newValue, currentValueSupplier, originalValueSupplier));
 
-    account.setStorageValue(key, value);
-    frame.storageWasUpdated(key, value);
-    return new OperationResult(OptionalLong.of(cost), Optional.empty());
+    account.setStorageValue(key, newValue);
+    frame.storageWasUpdated(key, newValue);
+    return new OperationResult(cost, null);
   }
 }

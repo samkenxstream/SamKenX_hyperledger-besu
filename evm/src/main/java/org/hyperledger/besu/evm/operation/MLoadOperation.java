@@ -21,15 +21,18 @@ import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 
-import java.util.Optional;
-import java.util.OptionalLong;
-
 import org.apache.tuweni.bytes.Bytes;
 
+/** The M load operation. */
 public class MLoadOperation extends AbstractOperation {
 
+  /**
+   * Instantiates a new M load operation.
+   *
+   * @param gasCalculator the gas calculator
+   */
   public MLoadOperation(final GasCalculator gasCalculator) {
-    super(0x51, "MLOAD", 1, 1, 1, gasCalculator);
+    super(0x51, "MLOAD", 1, 1, gasCalculator);
   }
 
   @Override
@@ -38,13 +41,12 @@ public class MLoadOperation extends AbstractOperation {
 
     final long cost = gasCalculator().mLoadOperationGasCost(frame, location);
     if (frame.getRemainingGas() < cost) {
-      return new OperationResult(
-          OptionalLong.of(cost), Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
+      return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
 
     final Bytes value = frame.readMutableMemory(location, 32, true).copy();
 
     frame.pushStackItem(value);
-    return new OperationResult(OptionalLong.of(cost), Optional.empty());
+    return new OperationResult(cost, null);
   }
 }

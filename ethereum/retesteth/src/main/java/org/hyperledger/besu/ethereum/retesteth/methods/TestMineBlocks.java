@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.blockcreation.PoWBlockCreator;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockImporter;
+import org.hyperledger.besu.ethereum.mainnet.BlockImportResult;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.retesteth.RetestethClock;
@@ -64,7 +65,7 @@ public class TestMineBlocks implements JsonRpcMethod {
     final PoWBlockCreator blockCreator =
         new PoWBlockCreator(
             context.getCoinbase(),
-            () -> Optional.of(10_000_000L),
+            () -> Optional.of(blockchain.getChainHeadHeader().getGasLimit()),
             header -> context.getExtraData(),
             context.getTransactionPool().getPendingTransactions(),
             protocolContext,
@@ -73,14 +74,17 @@ public class TestMineBlocks implements JsonRpcMethod {
             Wei.ZERO,
             0.0,
             blockchain.getChainHeadHeader());
-    final Block block = blockCreator.createBlock(retesethClock.instant().getEpochSecond());
+    final Block block =
+        blockCreator.createBlock(retesethClock.instant().getEpochSecond()).getBlock();
 
     // advance clock so next mine won't hit the same timestamp
     retesethClock.advanceSeconds(1);
 
     final BlockImporter blockImporter =
         protocolSchedule.getByBlockNumber(blockchain.getChainHeadBlockNumber()).getBlockImporter();
-    return blockImporter.importBlock(
-        protocolContext, block, headerValidationMode, headerValidationMode);
+    final BlockImportResult result =
+        blockImporter.importBlock(
+            protocolContext, block, headerValidationMode, headerValidationMode);
+    return result.isImported();
   }
 }

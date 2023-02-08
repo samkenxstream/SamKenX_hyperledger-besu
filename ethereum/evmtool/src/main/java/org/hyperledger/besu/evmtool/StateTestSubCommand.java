@@ -16,6 +16,7 @@
 
 package org.hyperledger.besu.evmtool;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.hyperledger.besu.ethereum.referencetests.ReferenceTestProtocolSchedules.shouldClearEmptyAccounts;
 import static org.hyperledger.besu.evmtool.StateTestSubCommand.COMMAND_NAME;
 
@@ -23,8 +24,9 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.mainnet.HeaderBasedProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
-import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.referencetests.GeneralStateTestCaseEipSpec;
@@ -44,12 +46,14 @@ import org.hyperledger.besu.evmtool.exception.UnsupportedForkException;
 import org.hyperledger.besu.util.Log4j2ConfiguratorUtil;
 
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
 import java.io.PrintStream;
-import java.nio.charset.StandardCharsets;
+import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -62,7 +66,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.base.Stopwatch;
 import org.apache.logging.log4j.Level;
-import org.apache.tuweni.units.bigints.UInt256;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import picocli.CommandLine.Command;
@@ -96,7 +99,9 @@ public class StateTestSubCommand implements Runnable {
 
   private final ObjectMapper objectMapper = new ObjectMapper();
 
+  @SuppressWarnings("unused")
   public StateTestSubCommand() {
+    // PicoCLI requires this
     this(null, System.in, System.out);
   }
 
@@ -113,17 +118,16 @@ public class StateTestSubCommand implements Runnable {
 
   @Override
   public void run() {
-    final ObjectMapper objectMapper = new ObjectMapper();
-    objectMapper.disable(Feature.AUTO_CLOSE_SOURCE);
+    final ObjectMapper stateTestMapper = new ObjectMapper();
+    stateTestMapper.disable(Feature.AUTO_CLOSE_SOURCE);
     final JavaType javaType =
-        objectMapper
+        stateTestMapper
             .getTypeFactory()
             .constructParametricType(Map.class, String.class, GeneralStateTestCaseSpec.class);
     try {
       if (stateTestFiles.isEmpty()) {
         // if no state tests were specified use standard input to get filenames
-        final BufferedReader in =
-            new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8));
+        final BufferedReader in = new BufferedReader(new InputStreamReader(input, UTF_8));
         while (true) {
           final String fileName = in.readLine();
           if (fileName == null) {
@@ -132,13 +136,9 @@ public class StateTestSubCommand implements Runnable {
           }
           final File file = new File(fileName);
           if (file.isFile()) {
-            try {
-              final Map<String, GeneralStateTestCaseSpec> generalStateTests =
-                  objectMapper.readValue(file, javaType);
-              executeStateTest(generalStateTests);
-            } catch (final JsonProcessingException jpe) {
-              output.println("File content error: " + jpe);
-            }
+            final Map<String, GeneralStateTestCaseSpec> generalStateTests =
+                stateTestMapper.readValue(file, javaType);
+            executeStateTest(generalStateTests);
           } else {
             output.println("File not found: " + fileName);
           }
@@ -146,10 +146,12 @@ public class StateTestSubCommand implements Runnable {
       } else {
         for (final File stateTestFile : stateTestFiles) {
           final Map<String, GeneralStateTestCaseSpec> generalStateTests =
-              objectMapper.readValue(stateTestFile, javaType);
+              stateTestMapper.readValue(stateTestFile, javaType);
           executeStateTest(generalStateTests);
         }
       }
+    } catch (final JsonProcessingException jpe) {
+      output.println("File content error: " + jpe);
     } catch (final IOException e) {
       LOG.error("Unable to read state file", e);
     }
@@ -160,16 +162,16 @@ public class StateTestSubCommand implements Runnable {
       generalStateTestEntry
           .getValue()
           .finalStateSpecs()
-          .forEach((fork, specs) -> traceTestSpecs(generalStateTestEntry.getKey(), specs));
+          .forEach((__, specs) -> traceTestSpecs(generalStateTestEntry.getKey(), specs));
     }
   }
 
   private void traceTestSpecs(final String test, final List<GeneralStateTestCaseEipSpec> specs) {
     Log4j2ConfiguratorUtil.setLevel(
-        "org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleBuilder", Level.OFF);
+        "org.hyperledger.besu.ethereum.mainnet.AbstractProtocolScheduleBuilder", Level.OFF);
     final var referenceTestProtocolSchedules = ReferenceTestProtocolSchedules.create();
     Log4j2ConfiguratorUtil.setLevel(
-        "org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleBuilder", null);
+        "org.hyperledger.besu.ethereum.mainnet.AbstractProtocolScheduleBuilder", null);
 
     final OperationTracer tracer = // You should have picked Mercy.
         parentCommand.showJsonResults
@@ -184,7 +186,9 @@ public class StateTestSubCommand implements Runnable {
 
       final ObjectNode summaryLine = objectMapper.createObjectNode();
       if (transaction == null) {
-        // Check the world state root hash.
+        if (parentCommand.showJsonAlloc || parentCommand.showJsonResults) {
+          output.println("{\"error\":\"Transaction was invalid, trace and alloc unavailable.\"}");
+        }
         summaryLine.put("test", test);
         summaryLine.put("fork", spec.getFork());
         summaryLine.put("d", spec.getDataIndex());
@@ -203,14 +207,14 @@ public class StateTestSubCommand implements Runnable {
         }
 
         final String forkName = fork == null ? spec.getFork() : fork;
-        final ProtocolSchedule protocolSchedule =
+        final HeaderBasedProtocolSchedule protocolSchedule =
             referenceTestProtocolSchedules.getByName(forkName);
         if (protocolSchedule == null) {
           throw new UnsupportedForkException(forkName);
         }
 
-        final MainnetTransactionProcessor processor =
-            protocolSchedule.getByBlockNumber(0).getTransactionProcessor();
+        ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(blockHeader);
+        final MainnetTransactionProcessor processor = protocolSpec.getTransactionProcessor();
         final WorldUpdater worldStateUpdater = worldState.updater();
         final ReferenceTestBlockchain blockchain =
             new ReferenceTestBlockchain(blockHeader.getNumber());
@@ -241,10 +245,13 @@ public class StateTestSubCommand implements Runnable {
         worldStateUpdater.commit();
 
         summaryLine.put("output", result.getOutput().toUnprefixedHexString());
-        final UInt256 gasUsed =
-            UInt256.valueOf(transaction.getGasLimit() - result.getGasRemaining());
+        final var gasUsed = transaction.getGasLimit() - result.getGasRemaining();
+        final var timeNs = timer.elapsed(TimeUnit.NANOSECONDS);
+        final var mGps = gasUsed * 1000.0f / timeNs;
+
         summaryLine.put("gasUsed", StandardJsonTracer.shortNumber(gasUsed));
-        summaryLine.put("time", timer.elapsed(TimeUnit.NANOSECONDS));
+        summaryLine.put("time", timeNs);
+        summaryLine.put("Mgps", String.format("%.3f", mGps));
 
         // Check the world state root hash.
         summaryLine.put("test", test);
@@ -267,6 +274,12 @@ public class StateTestSubCommand implements Runnable {
           summaryLine.put(
               "validationError",
               "Exception '" + spec.getExpectException() + "' was expected but did not occur");
+        }
+
+        if (parentCommand.showJsonAlloc) {
+          EvmToolCommand.dumpWorldState(
+              worldState,
+              new PrintWriter(new BufferedWriter(new OutputStreamWriter(output, UTF_8))));
         }
       }
 

@@ -87,6 +87,7 @@ import org.mockito.junit.MockitoJUnitRunner;
 
 @RunWith(MockitoJUnitRunner.StrictStubs.class)
 public class JsonRpcHttpServiceLoginTest {
+
   @ClassRule public static final TemporaryFolder folder = new TemporaryFolder();
 
   private static final Vertx vertx = Vertx.vertx();
@@ -151,7 +152,9 @@ public class JsonRpcHttpServiceLoginTest {
                     natService,
                     new HashMap<>(),
                     folder.getRoot().toPath(),
-                    mock(EthPeers.class)));
+                    mock(EthPeers.class),
+                    vertx,
+                    Optional.empty()));
     service = createJsonRpcHttpService();
     jwtAuth = service.authenticationService.get().getJwtAuthProvider();
     service.start().join();
@@ -199,7 +202,7 @@ public class JsonRpcHttpServiceLoginTest {
   @Test
   public void loginWithBadCredentials() throws IOException {
     final RequestBody body =
-        RequestBody.create(JSON, "{\"username\":\"user\",\"password\":\"badpass\"}");
+        RequestBody.create("{\"username\":\"user\",\"password\":\"badpass\"}", JSON);
     final Request request = new Request.Builder().post(body).url(baseUrl + "/login").build();
     try (final Response resp = client.newCall(request).execute()) {
       assertThat(resp.code()).isEqualTo(401);
@@ -210,7 +213,7 @@ public class JsonRpcHttpServiceLoginTest {
   @Test
   public void loginWithGoodCredentials() throws IOException {
     final RequestBody body =
-        RequestBody.create(JSON, "{\"username\":\"user\",\"password\":\"pegasys\"}");
+        RequestBody.create("{\"username\":\"user\",\"password\":\"pegasys\"}", JSON);
     final Request request = new Request.Builder().post(body).url(baseUrl + "/login").build();
     try (final Response resp = client.newCall(request).execute()) {
       assertThat(resp.code()).isEqualTo(200);
@@ -244,7 +247,7 @@ public class JsonRpcHttpServiceLoginTest {
   @Test
   public void loginWithGoodCredentialsAndPermissions() throws IOException {
     final RequestBody body =
-        RequestBody.create(JSON, "{\"username\":\"user\",\"password\":\"pegasys\"}");
+        RequestBody.create("{\"username\":\"user\",\"password\":\"pegasys\"}", JSON);
     final Request request = new Request.Builder().post(body).url(baseUrl + "/login").build();
     try (final Response resp = client.newCall(request).execute()) {
       assertThat(resp.code()).isEqualTo(200);
@@ -285,7 +288,7 @@ public class JsonRpcHttpServiceLoginTest {
   public void loginDoesntPopulateJWTPayloadWithPassword()
       throws IOException, KeyStoreException, CertificateException, NoSuchAlgorithmException {
     final RequestBody body =
-        RequestBody.create(JSON, "{\"username\":\"user\",\"password\":\"pegasys\"}");
+        RequestBody.create("{\"username\":\"user\",\"password\":\"pegasys\"}", JSON);
     final Request request = new Request.Builder().post(body).url(baseUrl + "/login").build();
     try (final Response resp = client.newCall(request).execute()) {
       assertThat(resp.code()).isEqualTo(200);
@@ -312,7 +315,7 @@ public class JsonRpcHttpServiceLoginTest {
   public void loginPopulatesJWTPayloadWithRequiredValues()
       throws IOException, KeyStoreException, CertificateException, NoSuchAlgorithmException {
     final RequestBody body =
-        RequestBody.create(JSON, "{\"username\":\"user\",\"password\":\"pegasys\"}");
+        RequestBody.create("{\"username\":\"user\",\"password\":\"pegasys\"}", JSON);
     final Request request = new Request.Builder().post(body).url(baseUrl + "/login").build();
     try (final Response resp = client.newCall(request).execute()) {
       assertThat(resp.code()).isEqualTo(200);
@@ -345,7 +348,7 @@ public class JsonRpcHttpServiceLoginTest {
   private String login(final String username, final String password) throws IOException {
     final RequestBody loginBody =
         RequestBody.create(
-            JSON, "{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}");
+            "{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}", JSON);
     final Request loginRequest =
         new Request.Builder().post(loginBody).url(baseUrl + "/login").build();
     final String token;
@@ -369,7 +372,7 @@ public class JsonRpcHttpServiceLoginTest {
   @Test
   public void checkJsonRpcMethodsAvailableWithGoodCredentialsAndPermissions() throws IOException {
     final RequestBody body =
-        RequestBody.create(JSON, "{\"username\":\"user\",\"password\":\"pegasys\"}");
+        RequestBody.create("{\"username\":\"user\",\"password\":\"pegasys\"}", JSON);
     final Request request = new Request.Builder().post(body).url(baseUrl + "/login").build();
     try (final Response resp = client.newCall(request).execute()) {
       assertThat(resp.code()).isEqualTo(200);
@@ -438,7 +441,7 @@ public class JsonRpcHttpServiceLoginTest {
   public void checkJsonRpcMethodsAvailableWithGoodCredentialsAndAllPermissions()
       throws IOException {
     final RequestBody body =
-        RequestBody.create(JSON, "{\"username\":\"adminuser\",\"password\":\"pegasys\"}");
+        RequestBody.create("{\"username\":\"adminuser\",\"password\":\"pegasys\"}", JSON);
     final Request request = new Request.Builder().post(body).url(baseUrl + "/login").build();
     try (final Response resp = client.newCall(request).execute()) {
       assertThat(resp.code()).isEqualTo(200);
@@ -521,10 +524,10 @@ public class JsonRpcHttpServiceLoginTest {
     final String id = "123";
     final RequestBody body =
         RequestBody.create(
-            JSON,
             "{\"jsonrpc\":\"2.0\",\"id\":"
                 + Json.encode(id)
-                + ",\"method\":\"web3_clientVersion\"}");
+                + ",\"method\":\"web3_clientVersion\"}",
+            JSON);
 
     try (final Response resp = client.newCall(buildPostRequest(body)).execute()) {
       assertThat(resp.code()).isEqualTo(401);
@@ -537,10 +540,10 @@ public class JsonRpcHttpServiceLoginTest {
     final String id = "123";
     final RequestBody body =
         RequestBody.create(
-            JSON,
             "{\"jsonrpc\":\"2.0\",\"id\":"
                 + Json.encode(id)
-                + ",\"method\":\"web3_clientVersion\"}");
+                + ",\"method\":\"web3_clientVersion\"}",
+            JSON);
 
     try (final Response resp = client.newCall(buildPostRequest(body, "badtoken")).execute()) {
       assertThat(resp.code()).isEqualTo(401);
@@ -555,10 +558,10 @@ public class JsonRpcHttpServiceLoginTest {
     final String id = "123";
     final RequestBody web3ClientVersionBody =
         RequestBody.create(
-            JSON,
             "{\"jsonrpc\":\"2.0\",\"id\":"
                 + Json.encode(id)
-                + ",\"method\":\"web3_clientVersion\"}");
+                + ",\"method\":\"web3_clientVersion\"}",
+            JSON);
 
     try (final Response web3ClientVersionResp =
         client.newCall(buildPostRequest(web3ClientVersionBody, token)).execute()) {
@@ -579,8 +582,8 @@ public class JsonRpcHttpServiceLoginTest {
     final String id = "123";
     final RequestBody requestBody =
         RequestBody.create(
-            JSON,
-            "{\"jsonrpc\":\"2.0\",\"id\":" + Json.encode(id) + ",\"method\":\"net_services\"}");
+            "{\"jsonrpc\":\"2.0\",\"id\":" + Json.encode(id) + ",\"method\":\"net_services\"}",
+            JSON);
 
     try (final Response response = client.newCall(buildPostRequest(requestBody, token)).execute()) {
       assertThat(response.code()).isEqualTo(200);
@@ -594,8 +597,8 @@ public class JsonRpcHttpServiceLoginTest {
     final String id = "123";
     final RequestBody requestBody =
         RequestBody.create(
-            JSON,
-            "{\"jsonrpc\":\"2.0\",\"id\":" + Json.encode(id) + ",\"method\":\"net_services\"}");
+            "{\"jsonrpc\":\"2.0\",\"id\":" + Json.encode(id) + ",\"method\":\"net_services\"}",
+            JSON);
 
     try (final Response response = client.newCall(buildPostRequest(requestBody)).execute()) {
       assertThat(response.code()).isEqualTo(200);
@@ -611,8 +614,8 @@ public class JsonRpcHttpServiceLoginTest {
     final String id = "007";
     final RequestBody body =
         RequestBody.create(
-            JSON,
-            "{\"jsonrpc\":\"2.0\",\"id\":" + Json.encode(id) + ",\"method\":\"eth_syncing\"}");
+            "{\"jsonrpc\":\"2.0\",\"id\":" + Json.encode(id) + ",\"method\":\"eth_syncing\"}",
+            JSON);
 
     try (final Response resp = client.newCall(buildPostRequest(body, token)).execute()) {
       assertThat(resp.code()).isEqualTo(401);

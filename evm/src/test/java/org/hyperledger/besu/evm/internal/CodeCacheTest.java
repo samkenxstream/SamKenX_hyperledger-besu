@@ -17,8 +17,8 @@ package org.hyperledger.besu.evm.internal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.evm.Code;
+import org.hyperledger.besu.evm.code.CodeFactory;
 import org.hyperledger.besu.evm.operation.JumpDestOperation;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -33,7 +33,7 @@ public class CodeCacheTest {
     final Bytes contractBytes =
         Bytes.fromHexString("0xDEAD" + op + "BEEF" + op + "B0B0" + op + "C0DE" + op + "FACE");
     final CodeScale scale = new CodeScale();
-    final Code contractCode = Code.createLegacyCode(contractBytes, Hash.hash(contractBytes));
+    final Code contractCode = CodeFactory.createCode(contractBytes, 0, false);
     final int weight = scale.weigh(contractCode.getCodeHash(), contractCode);
     assertThat(weight)
         .isEqualTo(contractCode.getCodeHash().size() + (contractBytes.size() * 9 + 7) / 8);

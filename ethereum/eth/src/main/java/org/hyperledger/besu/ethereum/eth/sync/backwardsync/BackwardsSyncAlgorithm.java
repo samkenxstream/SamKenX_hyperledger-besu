@@ -14,7 +14,6 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  */
-
 package org.hyperledger.besu.ethereum.eth.sync.backwardsync;
 
 import static org.hyperledger.besu.util.Slf4jLambdaHelper.debugLambda;
@@ -22,21 +21,28 @@ import static org.slf4j.LoggerFactory.getLogger;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
+import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.eth.manager.task.WaitForPeersTask;
+import org.hyperledger.besu.plugin.services.BesuEvents;
 
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 
-public class BackwardsSyncAlgorithm {
+public class BackwardsSyncAlgorithm implements BesuEvents.InitialSyncCompletionListener {
   private static final Logger LOG = getLogger(BackwardsSyncAlgorithm.class);
 
   private final BackwardSyncContext context;
   private final FinalBlockConfirmation finalBlockConfirmation;
+  private final AtomicReference<CountDownLatch> latch =
+      new AtomicReference<>(new CountDownLatch(1));
   private volatile boolean finished = false;
 
   public BackwardsSyncAlgorithm(
@@ -57,41 +63,46 @@ public class BackwardsSyncAlgorithm {
     final Optional<Hash> firstHash = context.getBackwardChain().getFirstHashToAppend();
     if (firstHash.isPresent()) {
       return executeSyncStep(firstHash.get())
-          .whenComplete(
-              (result, throwable) -> {
-                if (throwable == null) {
-                  context.getBackwardChain().removeFromHashToAppend(firstHash.get());
-                }
+          .thenAccept(
+              result -> {
+                LOG.info("Backward sync target block is {}", result.toLogString());
+                context.getBackwardChain().removeFromHashToAppend(firstHash.get());
+                context.getStatus().updateTargetHeight(result.getHeader().getNumber());
               });
     }
     if (!context.isReady()) {
       return waitForReady();
     }
-    runFinalizedSuccessionRule(
-        context.getProtocolContext().getBlockchain(), context.findMaybeFinalized());
-    final Optional<BlockHeader> possibleFirstAncestorHeader =
+    final Optional<BlockHeader> maybeFirstAncestorHeader =
         context.getBackwardChain().getFirstAncestorHeader();
-    if (possibleFirstAncestorHeader.isEmpty()) {
+    if (maybeFirstAncestorHeader.isEmpty()) {
       this.finished = true;
-      LOG.info("The Backward sync is done...");
+      LOG.info("Current backward sync session is done");
       context.getBackwardChain().clear();
       return CompletableFuture.completedFuture(null);
     }
+
     final MutableBlockchain blockchain = context.getProtocolContext().getBlockchain();
-    final BlockHeader firstAncestorHeader = possibleFirstAncestorHeader.get();
-    if (blockchain.contains(firstAncestorHeader.getHash())) {
+    final BlockHeader firstAncestorHeader = maybeFirstAncestorHeader.get();
+    final BlockHeader chainHeader = blockchain.getChainHeadHeader();
+    if (blockchain.contains(firstAncestorHeader.getHash())
+        && firstAncestorHeader.getNumber() <= chainHeader.getNumber()) {
       return executeProcessKnownAncestors();
     }
-    if (blockchain.getChainHead().getHeight() > firstAncestorHeader.getNumber()) {
+
+    if (chainHeader.getNumber() > firstAncestorHeader.getNumber()) {
       debugLambda(
           LOG,
-          "Backward reached below previous head {} : {}",
+          "Backward reached below current chain head {} : {}",
           () -> blockchain.getChainHead().toLogString(),
           firstAncestorHeader::toLogString);
     }
 
     if (finalBlockConfirmation.ancestorHeaderReached(firstAncestorHeader)) {
-      LOG.info("Backward sync reached ancestor header, starting Forward sync");
+      debugLambda(
+          LOG,
+          "Backward sync reached ancestor header with {}, starting forward sync",
+          firstAncestorHeader::toLogString);
       return executeForwardAsync();
     }
 
@@ -104,7 +115,7 @@ public class BackwardsSyncAlgorithm {
   }
 
   @VisibleForTesting
-  public CompletableFuture<Void> executeSyncStep(final Hash hash) {
+  public CompletableFuture<Block> executeSyncStep(final Hash hash) {
     return new SyncStepStep(context, context.getBackwardChain()).executeAsync(hash);
   }
 
@@ -120,81 +131,53 @@ public class BackwardsSyncAlgorithm {
 
   @VisibleForTesting
   protected CompletableFuture<Void> waitForReady() {
-    final CountDownLatch latch = new CountDownLatch(1);
-    final long idTTD =
-        context.getSyncState().subscribeTTDReached(reached -> countDownIfReady(latch));
-    final long idIS =
-        context.getSyncState().subscribeCompletionReached(() -> countDownIfReady(latch));
-    return CompletableFuture.runAsync(() -> checkReadiness(latch, idTTD, idIS));
+    final long idTTD = context.getSyncState().subscribeTTDReached(reached -> countDownIfReady());
+    final long idIS = context.getSyncState().subscribeCompletionReached(this);
+    return CompletableFuture.runAsync(() -> checkReadiness(idTTD, idIS));
   }
 
-  private void checkReadiness(final CountDownLatch latch, final long idTTD, final long idIS) {
+  private void checkReadiness(final long idTTD, final long idIS) {
     try {
       if (!context.isReady()) {
-        LOG.info("Waiting for preconditions...");
-        final boolean await = latch.await(2, TimeUnit.MINUTES);
+        LOG.debug("Waiting for preconditions...");
+        final boolean await = latch.get().await(2, TimeUnit.MINUTES);
         if (await) {
-          LOG.info("Preconditions meet...");
+          LOG.debug("Preconditions meet, ensure at least one peer is connected");
+          waitForPeers(1).get();
         }
       }
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
-      throw new BackwardSyncException("Wait for TTD preconditions interrupted");
+      throw new BackwardSyncException(
+          "Wait for TTD preconditions interrupted (" + e.getMessage() + ")");
+    } catch (ExecutionException e) {
+      throw new BackwardSyncException(
+          "Error while waiting for at least one connected peer (" + e.getMessage() + ")", true);
     } finally {
       context.getSyncState().unsubscribeTTDReached(idTTD);
       context.getSyncState().unsubscribeInitialConditionReached(idIS);
     }
   }
 
-  private void countDownIfReady(final CountDownLatch latch) {
+  private void countDownIfReady() {
     if (context.isReady()) {
-      latch.countDown();
+      latch.get().countDown();
     }
   }
 
-  @VisibleForTesting
-  protected void runFinalizedSuccessionRule(
-      final MutableBlockchain blockchain, final Optional<Hash> maybeFinalized) {
-    if (maybeFinalized.isEmpty()) {
-      LOG.debug("Nothing to validate yet, consensus layer did not provide a new finalized block");
-      return;
-    }
-    final Hash newFinalized = maybeFinalized.get();
-    if (!blockchain.contains(newFinalized)) {
-      LOG.debug("New finalized block {} is not imported yet", newFinalized);
-      return;
-    }
+  private CompletableFuture<Void> waitForPeers(final int count) {
+    final WaitForPeersTask waitForPeersTask =
+        WaitForPeersTask.create(context.getEthContext(), count, context.getMetricsSystem());
+    return waitForPeersTask.run();
+  }
 
-    final Optional<Hash> maybeOldFinalized = blockchain.getFinalized();
-    if (maybeOldFinalized.isPresent()) {
-      final Hash oldFinalized = maybeOldFinalized.get();
-      if (newFinalized.equals(oldFinalized)) {
-        LOG.debug("We already have this block as finalized");
-        return;
-      }
-      BlockHeader newFinalizedHeader =
-          blockchain
-              .getBlockHeader(newFinalized)
-              .orElseThrow(
-                  () ->
-                      new BackwardSyncException(
-                          "The header " + newFinalized.toHexString() + "not found"));
-      BlockHeader oldFinalizedHeader =
-          blockchain
-              .getBlockHeader(oldFinalized)
-              .orElseThrow(
-                  () ->
-                      new BackwardSyncException(
-                          "The header " + oldFinalized.toHexString() + "not found"));
-      LOG.info(
-          "Updating finalized {} block to new finalized block {}",
-          oldFinalizedHeader.toLogString(),
-          newFinalizedHeader.toLogString());
-    } else {
-      // Todo: should TTD test be here?
-      LOG.info("Setting new finalized block to {}", newFinalized);
-    }
+  @Override
+  public void onInitialSyncCompleted() {
+    countDownIfReady();
+  }
 
-    blockchain.setFinalized(newFinalized);
+  @Override
+  public void onInitialSyncRestart() {
+    latch.set(new CountDownLatch(1));
   }
 }

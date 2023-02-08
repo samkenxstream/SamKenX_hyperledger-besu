@@ -17,35 +17,48 @@ package org.hyperledger.besu.evm.operation;
 import static org.hyperledger.besu.evm.internal.Words.clampedToLong;
 
 import org.hyperledger.besu.datatypes.Address;
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.account.MutableAccount;
+import org.hyperledger.besu.evm.code.CodeFactory;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.internal.Words;
 
-import java.util.Optional;
-import java.util.OptionalLong;
-
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 
+/** The Abstract create operation. */
 public abstract class AbstractCreateOperation extends AbstractOperation {
 
+  /** The constant UNDERFLOW_RESPONSE. */
   protected static final OperationResult UNDERFLOW_RESPONSE =
-      new OperationResult(
-          OptionalLong.of(0L), Optional.of(ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS));
+      new OperationResult(0L, ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
 
+  /** The maximum init code size */
+  protected int maxInitcodeSize;
+
+  /**
+   * Instantiates a new Abstract create operation.
+   *
+   * @param opcode the opcode
+   * @param name the name
+   * @param stackItemsConsumed the stack items consumed
+   * @param stackItemsProduced the stack items produced
+   * @param gasCalculator the gas calculator
+   * @param maxInitcodeSize Maximum init code size
+   */
   protected AbstractCreateOperation(
       final int opcode,
       final String name,
       final int stackItemsConsumed,
       final int stackItemsProduced,
-      final int opSize,
-      final GasCalculator gasCalculator) {
-    super(opcode, name, stackItemsConsumed, stackItemsProduced, opSize, gasCalculator);
+      final GasCalculator gasCalculator,
+      final int maxInitcodeSize) {
+    super(opcode, name, stackItemsConsumed, stackItemsProduced, gasCalculator);
+    this.maxInitcodeSize = maxInitcodeSize;
   }
 
   @Override
@@ -57,11 +70,9 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
 
     final long cost = cost(frame);
     if (frame.isStatic()) {
-      return new OperationResult(
-          OptionalLong.of(cost), Optional.of(ExceptionalHaltReason.ILLEGAL_STATE_CHANGE));
+      return new OperationResult(cost, ExceptionalHaltReason.ILLEGAL_STATE_CHANGE);
     } else if (frame.getRemainingGas() < cost) {
-      return new OperationResult(
-          OptionalLong.of(cost), Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
+      return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
     final Wei value = Wei.wrap(frame.getStackItem(0));
 
@@ -75,14 +86,45 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
         || account.getNonce() == -1) {
       fail(frame);
     } else {
-      spawnChildMessage(frame, evm);
+      account.incrementNonce();
+
+      final long inputOffset = clampedToLong(frame.getStackItem(1));
+      final long inputSize = clampedToLong(frame.getStackItem(2));
+      if (inputSize > maxInitcodeSize) {
+        frame.popStackItems(getStackItemsConsumed());
+        return new OperationResult(cost, ExceptionalHaltReason.CODE_TOO_LARGE);
+      }
+      final Bytes inputData = frame.readMemory(inputOffset, inputSize);
+      // Never cache CREATEx initcode. The amount of reuse is very low, and caching mostly
+      // addresses disk loading delay, and we already have the code.
+      Code code = evm.getCode(null, inputData);
+
+      if (code.isValid() && frame.getCode().getEofVersion() <= code.getEofVersion()) {
+        frame.decrementRemainingGas(cost);
+        spawnChildMessage(frame, code, evm);
+        frame.incrementRemainingGas(cost);
+      } else {
+        fail(frame);
+      }
     }
 
-    return new OperationResult(OptionalLong.of(cost), Optional.empty());
+    return new OperationResult(cost, null);
   }
 
+  /**
+   * Cost operation.
+   *
+   * @param frame the frame
+   * @return the long
+   */
   protected abstract long cost(final MessageFrame frame);
 
+  /**
+   * Target contract address.
+   *
+   * @param frame the frame
+   * @return the address
+   */
   protected abstract Address targetContractAddress(MessageFrame frame);
 
   private void fail(final MessageFrame frame) {
@@ -93,20 +135,8 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
     frame.pushStackItem(UInt256.ZERO);
   }
 
-  private void spawnChildMessage(final MessageFrame frame, final EVM evm) {
-    // memory cost needs to be calculated prior to memory expansion
-    final long cost = cost(frame);
-    frame.decrementRemainingGas(cost);
-
-    final Address address = frame.getRecipientAddress();
-    final MutableAccount account = frame.getWorldUpdater().getAccount(address).getMutable();
-
-    account.incrementNonce();
-
+  private void spawnChildMessage(final MessageFrame frame, final Code code, final EVM evm) {
     final Wei value = Wei.wrap(frame.getStackItem(0));
-    final long inputOffset = clampedToLong(frame.getStackItem(1));
-    final long inputSize = clampedToLong(frame.getStackItem(2));
-    final Bytes inputData = frame.readMemory(inputOffset, inputSize);
 
     final Address contractAddress = targetContractAddress(frame);
 
@@ -128,34 +158,41 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
             .sender(frame.getRecipientAddress())
             .value(value)
             .apparentValue(value)
-            .code(evm.getCode(Hash.hash(inputData), inputData))
+            .code(code)
             .blockValues(frame.getBlockValues())
             .depth(frame.getMessageStackDepth() + 1)
-            .completer(child -> complete(frame, child))
+            .completer(child -> complete(frame, child, evm))
             .miningBeneficiary(frame.getMiningBeneficiary())
             .blockHashLookup(frame.getBlockHashLookup())
             .maxStackSize(frame.getMaxStackSize())
             .build();
 
-    frame.incrementRemainingGas(cost);
-
     frame.getMessageFrameStack().addFirst(childFrame);
     frame.setState(MessageFrame.State.CODE_SUSPENDED);
   }
 
-  private void complete(final MessageFrame frame, final MessageFrame childFrame) {
+  private void complete(final MessageFrame frame, final MessageFrame childFrame, final EVM evm) {
     frame.setState(MessageFrame.State.CODE_EXECUTING);
 
-    frame.incrementRemainingGas(childFrame.getRemainingGas());
-    frame.addLogs(childFrame.getLogs());
-    frame.addSelfDestructs(childFrame.getSelfDestructs());
-    frame.incrementGasRefund(childFrame.getGasRefund());
+    Code outputCode =
+        CodeFactory.createCode(childFrame.getOutputData(), evm.getMaxEOFVersion(), true);
     frame.popStackItems(getStackItemsConsumed());
 
-    if (childFrame.getState() == MessageFrame.State.COMPLETED_SUCCESS) {
-      frame.mergeWarmedUpFields(childFrame);
-      frame.pushStackItem(Words.fromAddress(childFrame.getContractAddress()));
+    if (outputCode.isValid()) {
+      frame.incrementRemainingGas(childFrame.getRemainingGas());
+      frame.addLogs(childFrame.getLogs());
+      frame.addSelfDestructs(childFrame.getSelfDestructs());
+      frame.incrementGasRefund(childFrame.getGasRefund());
+
+      if (childFrame.getState() == MessageFrame.State.COMPLETED_SUCCESS) {
+        frame.mergeWarmedUpFields(childFrame);
+        frame.pushStackItem(Words.fromAddress(childFrame.getContractAddress()));
+      } else {
+        frame.setReturnData(childFrame.getOutputData());
+        frame.pushStackItem(UInt256.ZERO);
+      }
     } else {
+      frame.getWorldUpdater().deleteAccount(childFrame.getRecipientAddress());
       frame.setReturnData(childFrame.getOutputData());
       frame.pushStackItem(UInt256.ZERO);
     }

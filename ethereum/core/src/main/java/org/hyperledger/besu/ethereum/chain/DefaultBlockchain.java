@@ -192,7 +192,7 @@ public class DefaultBlockchain implements MutableBlockchain {
 
   @Override
   public ChainHead getChainHead() {
-    return new ChainHead(chainHeader.getHash(), totalDifficulty, chainHeader.getNumber());
+    return new ChainHead(chainHeader, totalDifficulty, chainHeader.getNumber());
   }
 
   @Override
@@ -576,8 +576,9 @@ public class DefaultBlockchain implements MutableBlockchain {
       final BlockWithReceipts blockWithReceipts = getBlockWithReceipts(oldBlockHeader).get();
       final Block block = blockWithReceipts.getBlock();
 
-      handleChainReorg(updater, blockWithReceipts);
+      var reorgEvent = handleChainReorg(updater, blockWithReceipts);
       updater.commit();
+      blockAddedObservers.forEach(o -> o.onBlockAdded(reorgEvent));
 
       updateCacheForNewCanonicalHead(block, calculateTotalDifficulty(block.getHeader()));
       return true;

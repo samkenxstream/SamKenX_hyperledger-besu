@@ -119,7 +119,7 @@ public class PipelineChainDownloader implements ChainDownloader {
     pipelineErrorCounter.inc();
     if (ExceptionUtils.rootCause(error) instanceof InvalidBlockException) {
       LOG.warn(
-          "Invalid block detected. Disconnecting from sync target. {}",
+          "Invalid block detected (BREACH_OF_PROTOCOL). Disconnecting from sync target. {}",
           ExceptionUtils.rootCause(error).getMessage());
       syncState.disconnectSyncTarget(DisconnectReason.BREACH_OF_PROTOCOL);
     }
@@ -139,7 +139,8 @@ public class PipelineChainDownloader implements ChainDownloader {
     final Throwable rootCause = ExceptionUtils.rootCause(error);
     if (rootCause instanceof CancellationException
         || rootCause instanceof InterruptedException
-        || rootCause instanceof EthTaskException) {
+        || rootCause instanceof EthTaskException
+        || rootCause instanceof IllegalArgumentException) {
       LOG.debug(message, error);
     } else if (rootCause instanceof InvalidBlockException) {
       LOG.warn(message, error);
@@ -156,6 +157,7 @@ public class PipelineChainDownloader implements ChainDownloader {
     if (!syncTargetManager.shouldContinueDownloading()) {
       return CompletableFuture.completedFuture(null);
     }
+
     syncState.setSyncTarget(target.peer(), target.commonAncestor());
     debugLambda(
         LOG,

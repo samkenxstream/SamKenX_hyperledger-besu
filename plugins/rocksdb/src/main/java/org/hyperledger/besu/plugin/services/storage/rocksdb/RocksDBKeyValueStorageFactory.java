@@ -28,7 +28,6 @@ import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksD
 import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBFactoryConfiguration;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.segmented.RocksDBColumnarKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.unsegmented.RocksDBKeyValueStorage;
-import org.hyperledger.besu.services.kvstore.SegmentedKeyValueStorage;
 import org.hyperledger.besu.services.kvstore.SegmentedKeyValueStorageAdapter;
 
 import java.io.IOException;
@@ -36,12 +35,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
-import com.google.common.base.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/** The Rocks db key value storage factory. */
 public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
 
   private static final Logger LOG = LoggerFactory.getLogger(RocksDBKeyValueStorageFactory.class);
@@ -53,31 +53,87 @@ public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
   private final int defaultVersion;
   private Integer databaseVersion;
   private Boolean isSegmentIsolationSupported;
-  private SegmentedKeyValueStorage<?> segmentedStorage;
+  private RocksDBColumnarKeyValueStorage segmentedStorage;
   private KeyValueStorage unsegmentedStorage;
   private RocksDBConfiguration rocksDBConfiguration;
 
   private final Supplier<RocksDBFactoryConfiguration> configuration;
   private final List<SegmentIdentifier> segments;
+  private final List<SegmentIdentifier> ignorableSegments;
 
-  RocksDBKeyValueStorageFactory(
+  /**
+   * Instantiates a new RocksDb key value storage factory.
+   *
+   * @param configuration the configuration
+   * @param segments the segments
+   * @param ignorableSegments the ignorable segments
+   * @param defaultVersion the default version
+   * @param rocksDBMetricsFactory the rocks db metrics factory
+   */
+  public RocksDBKeyValueStorageFactory(
       final Supplier<RocksDBFactoryConfiguration> configuration,
       final List<SegmentIdentifier> segments,
+      final List<SegmentIdentifier> ignorableSegments,
       final int defaultVersion,
       final RocksDBMetricsFactory rocksDBMetricsFactory) {
     this.configuration = configuration;
     this.segments = segments;
+    this.ignorableSegments = ignorableSegments;
     this.defaultVersion = defaultVersion;
     this.rocksDBMetricsFactory = rocksDBMetricsFactory;
   }
 
+  /**
+   * Instantiates a new RocksDb key value storage factory.
+   *
+   * @param configuration the configuration
+   * @param segments the segments
+   * @param defaultVersion the default version
+   * @param rocksDBMetricsFactory the rocks db metrics factory
+   */
+  public RocksDBKeyValueStorageFactory(
+      final Supplier<RocksDBFactoryConfiguration> configuration,
+      final List<SegmentIdentifier> segments,
+      final int defaultVersion,
+      final RocksDBMetricsFactory rocksDBMetricsFactory) {
+    this(configuration, segments, List.of(), defaultVersion, rocksDBMetricsFactory);
+  }
+
+  /**
+   * Instantiates a new Rocks db key value storage factory.
+   *
+   * @param configuration the configuration
+   * @param segments the segments
+   * @param ignorableSegments the ignorable segments
+   * @param rocksDBMetricsFactory the rocks db metrics factory
+   */
+  public RocksDBKeyValueStorageFactory(
+      final Supplier<RocksDBFactoryConfiguration> configuration,
+      final List<SegmentIdentifier> segments,
+      final List<SegmentIdentifier> ignorableSegments,
+      final RocksDBMetricsFactory rocksDBMetricsFactory) {
+    this(configuration, segments, ignorableSegments, DEFAULT_VERSION, rocksDBMetricsFactory);
+  }
+
+  /**
+   * Instantiates a new Rocks db key value storage factory.
+   *
+   * @param configuration the configuration
+   * @param segments the segments
+   * @param rocksDBMetricsFactory the rocks db metrics factory
+   */
   public RocksDBKeyValueStorageFactory(
       final Supplier<RocksDBFactoryConfiguration> configuration,
       final List<SegmentIdentifier> segments,
       final RocksDBMetricsFactory rocksDBMetricsFactory) {
-    this(configuration, segments, DEFAULT_VERSION, rocksDBMetricsFactory);
+    this(configuration, segments, List.of(), DEFAULT_VERSION, rocksDBMetricsFactory);
   }
 
+  /**
+   * Gets default version.
+   *
+   * @return the default version
+   */
   int getDefaultVersion() {
     return defaultVersion;
   }
@@ -121,11 +177,19 @@ public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
                 segments.stream()
                     .filter(segmentId -> segmentId.includeInDatabaseVersion(databaseVersion))
                     .collect(Collectors.toList());
+
             segmentedStorage =
                 new RocksDBColumnarKeyValueStorage(
-                    rocksDBConfiguration, segmentsForVersion, metricsSystem, rocksDBMetricsFactory);
+                    rocksDBConfiguration,
+                    segmentsForVersion,
+                    ignorableSegments,
+                    metricsSystem,
+                    rocksDBMetricsFactory);
           }
-          return new SegmentedKeyValueStorageAdapter<>(segment, segmentedStorage);
+          final RocksDbSegmentIdentifier rocksSegment =
+              segmentedStorage.getSegmentIdentifierByName(segment);
+          return new SegmentedKeyValueStorageAdapter<>(
+              segment, segmentedStorage, () -> segmentedStorage.takeSnapshot(rocksSegment));
         }
       default:
         {
@@ -137,6 +201,12 @@ public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
     }
   }
 
+  /**
+   * Storage path.
+   *
+   * @param commonConfiguration the common configuration
+   * @return the path
+   */
   protected Path storagePath(final BesuConfiguration commonConfiguration) {
     return commonConfiguration.getStoragePath();
   }
@@ -200,5 +270,10 @@ public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
     return checkNotNull(
         isSegmentIsolationSupported,
         "Whether segment isolation is supported will be determined during creation. Call a creation method first");
+  }
+
+  @Override
+  public boolean isSnapshotIsolationSupported() {
+    return true;
   }
 }

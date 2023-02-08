@@ -26,9 +26,19 @@ import javax.annotation.Nonnull;
 
 import org.testcontainers.containers.Network;
 
+/** The Tessera test harness factory. */
 public class TesseraTestHarnessFactory {
   private static final String storage = "memory";
 
+  /**
+   * Create tessera test harness.
+   *
+   * @param name the name
+   * @param tempDir the temp dir
+   * @param enclaveConfig the enclave config
+   * @param containerNetwork the container network
+   * @return the tessera test harness
+   */
   public static TesseraTestHarness create(
       final String name,
       final Path tempDir,
@@ -39,32 +49,61 @@ public class TesseraTestHarnessFactory {
         tempDir,
         enclaveConfig.getPubKeyPaths(),
         enclaveConfig.getPrivKeyPaths(),
+        enclaveConfig.getEnclaveEncryptorType(),
         Collections.emptyList(),
         containerNetwork);
   }
 
+  /**
+   * Create tessera test harness.
+   *
+   * @param name the name
+   * @param tempDir the temp dir
+   * @param pubKeyPaths the pub key paths
+   * @param privKeyPaths the priv key paths
+   * @param enclaveEncryptorType the enclave encryptor type
+   * @param othernodes the othernodes
+   * @param containerNetwork the container network
+   * @return the tessera test harness
+   */
   public static TesseraTestHarness create(
       final String name,
       final Path tempDir,
       final String[] pubKeyPaths,
       final String[] privKeyPaths,
+      final EnclaveEncryptorType enclaveEncryptorType,
       final List<String> othernodes,
       final Optional<Network> containerNetwork) {
     final Path[] pubKeys = stringArrayToPathArray(tempDir, pubKeyPaths);
     final Path[] privKeys = stringArrayToPathArray(tempDir, privKeyPaths);
 
-    return create(name, tempDir, pubKeys, privKeys, othernodes, containerNetwork);
+    return create(
+        name, tempDir, pubKeys, privKeys, enclaveEncryptorType, othernodes, containerNetwork);
   }
 
+  /**
+   * Create tessera test harness.
+   *
+   * @param name the name
+   * @param tempDir the temp dir
+   * @param key1pubs the key 1 pubs
+   * @param key1keys the key 1 keys
+   * @param enclaveEncryptorType the enclave encryptor type
+   * @param othernodes the othernodes
+   * @param containerNetwork the container network
+   * @return the tessera test harness
+   */
   public static TesseraTestHarness create(
       final String name,
       final Path tempDir,
       final Path[] key1pubs,
       final Path[] key1keys,
+      final EnclaveEncryptorType enclaveEncryptorType,
       final List<String> othernodes,
       final Optional<Network> containerNetwork) {
     return new TesseraTestHarness(
-        new EnclaveConfiguration(name, key1pubs, key1keys, tempDir, othernodes, false, storage),
+        new EnclaveConfiguration(
+            name, key1pubs, key1keys, enclaveEncryptorType, tempDir, othernodes, false, storage),
         containerNetwork);
   }
 

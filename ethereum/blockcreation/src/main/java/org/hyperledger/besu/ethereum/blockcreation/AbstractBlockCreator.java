@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.blockcreation;
 
-import org.hyperledger.besu.config.MergeConfigOptions;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
@@ -29,22 +28,25 @@ import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
 import org.hyperledger.besu.ethereum.core.SealableBlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
-import org.hyperledger.besu.ethereum.eth.transactions.sorter.AbstractPendingTransactionsSorter;
+import org.hyperledger.besu.ethereum.core.Withdrawal;
+import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
 import org.hyperledger.besu.ethereum.mainnet.AbstractBlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.DifficultyCalculator;
+import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.ScheduleBasedBlockHeaderFunctions;
+import org.hyperledger.besu.ethereum.mainnet.WithdrawalsProcessor;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.BaseFeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.evm.account.EvmAccount;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
+import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.securitymodule.SecurityModuleException;
 
 import java.math.BigInteger;
-import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
@@ -71,14 +73,13 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
   protected final Supplier<Optional<Long>> targetGasLimitSupplier;
 
   private final ExtraDataCalculator extraDataCalculator;
-  private final AbstractPendingTransactionsSorter pendingTransactions;
+  private final PendingTransactions pendingTransactions;
   protected final ProtocolContext protocolContext;
   protected final ProtocolSchedule protocolSchedule;
   protected final BlockHeaderFunctions blockHeaderFunctions;
   private final Wei minTransactionGasPrice;
   private final Double minBlockOccupancyRatio;
   protected final BlockHeader parentHeader;
-  protected final ProtocolSpec protocolSpec;
 
   private final AtomicBoolean isCancelled = new AtomicBoolean(false);
 
@@ -87,7 +88,7 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
       final MiningBeneficiaryCalculator miningBeneficiaryCalculator,
       final Supplier<Optional<Long>> targetGasLimitSupplier,
       final ExtraDataCalculator extraDataCalculator,
-      final AbstractPendingTransactionsSorter pendingTransactions,
+      final PendingTransactions pendingTransactions,
       final ProtocolContext protocolContext,
       final ProtocolSchedule protocolSchedule,
       final Wei minTransactionGasPrice,
@@ -103,7 +104,6 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
     this.minTransactionGasPrice = minTransactionGasPrice;
     this.minBlockOccupancyRatio = minBlockOccupancyRatio;
     this.parentHeader = parentHeader;
-    this.protocolSpec = protocolSchedule.getByBlockNumber(parentHeader.getNumber() + 1);
     blockHeaderFunctions = ScheduleBasedBlockHeaderFunctions.create(protocolSchedule);
   }
 
@@ -125,54 +125,74 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
    * @return a block with appropriately selected transactions, seals and ommers.
    */
   @Override
-  public Block createBlock(final long timestamp) {
+  public BlockCreationResult createBlock(final long timestamp) {
     return createBlock(Optional.empty(), Optional.empty(), timestamp);
   }
 
   @Override
-  public Block createBlock(
+  public BlockCreationResult createBlock(
       final List<Transaction> transactions, final List<BlockHeader> ommers, final long timestamp) {
     return createBlock(Optional.of(transactions), Optional.of(ommers), timestamp);
   }
 
   @Override
-  public Block createBlock(
+  public BlockCreationResult createBlock(
       final Optional<List<Transaction>> maybeTransactions,
       final Optional<List<BlockHeader>> maybeOmmers,
       final long timestamp) {
-    return createBlock(maybeTransactions, maybeOmmers, Optional.empty(), timestamp, true);
+    return createBlock(
+        maybeTransactions, maybeOmmers, Optional.empty(), Optional.empty(), timestamp, true);
   }
 
-  protected Block createBlock(
+  protected BlockCreationResult createBlock(
       final Optional<List<Transaction>> maybeTransactions,
       final Optional<List<BlockHeader>> maybeOmmers,
+      final Optional<List<Withdrawal>> maybeWithdrawals,
       final Optional<Bytes32> maybePrevRandao,
       final long timestamp,
       boolean rewardCoinbase) {
-    try {
+
+    try (final MutableWorldState disposableWorldState = duplicateWorldStateAtParent()) {
+      final ProtocolSpec newProtocolSpec =
+          protocolSchedule.getByBlockHeader(
+              BlockHeaderBuilder.fromHeader(parentHeader)
+                  .number(parentHeader.getNumber() + 1)
+                  .timestamp(timestamp)
+                  .parentHash(parentHeader.getHash())
+                  .blockHeaderFunctions(new MainnetBlockHeaderFunctions())
+                  .buildBlockHeader());
+
       final ProcessableBlockHeader processableBlockHeader =
-          createPendingBlockHeader(timestamp, maybePrevRandao);
+          createPendingBlockHeader(timestamp, maybePrevRandao, newProtocolSpec);
       final Address miningBeneficiary =
           miningBeneficiaryCalculator.getMiningBeneficiary(processableBlockHeader.getNumber());
-
-      throwIfStopped();
-
-      final MutableWorldState disposableWorldState = duplicateWorldStateAtParent();
 
       throwIfStopped();
 
       final List<BlockHeader> ommers = maybeOmmers.orElse(selectOmmers());
 
       throwIfStopped();
-
       final BlockTransactionSelector.TransactionSelectionResults transactionResults =
           selectTransactions(
-              processableBlockHeader, disposableWorldState, maybeTransactions, miningBeneficiary);
+              processableBlockHeader,
+              disposableWorldState,
+              maybeTransactions,
+              miningBeneficiary,
+              newProtocolSpec);
 
       throwIfStopped();
 
-      final ProtocolSpec newProtocolSpec =
-          protocolSchedule.getByBlockNumber(processableBlockHeader.getNumber());
+      final Optional<WithdrawalsProcessor> maybeWithdrawalsProcessor =
+          newProtocolSpec.getWithdrawalsProcessor();
+      final boolean withdrawalsCanBeProcessed =
+          maybeWithdrawalsProcessor.isPresent() && maybeWithdrawals.isPresent();
+      if (withdrawalsCanBeProcessed) {
+        maybeWithdrawalsProcessor
+            .get()
+            .processWithdrawals(maybeWithdrawals.get(), disposableWorldState.updater());
+      }
+
+      throwIfStopped();
 
       if (rewardCoinbase
           && !rewardBeneficiary(
@@ -181,7 +201,8 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
               ommers,
               miningBeneficiary,
               newProtocolSpec.getBlockReward(),
-              newProtocolSpec.isSkipZeroBlockRewards())) {
+              newProtocolSpec.isSkipZeroBlockRewards(),
+              newProtocolSpec)) {
         LOG.trace("Failed to apply mining reward, exiting.");
         throw new RuntimeException("Failed to apply mining reward.");
       }
@@ -191,9 +212,7 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
       final SealableBlockHeader sealableBlockHeader =
           BlockHeaderBuilder.create()
               .populateFrom(processableBlockHeader)
-              .ommersHash(
-                  BodyValidation.ommersHash(
-                      MergeConfigOptions.isMergeEnabled() ? Collections.emptyList() : ommers))
+              .ommersHash(BodyValidation.ommersHash(ommers))
               .stateRoot(disposableWorldState.rootHash())
               .transactionsRoot(
                   BodyValidation.transactionsRoot(transactionResults.getTransactions()))
@@ -201,17 +220,26 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
               .logsBloom(BodyValidation.logsBloom(transactionResults.getReceipts()))
               .gasUsed(transactionResults.getCumulativeGasUsed())
               .extraData(extraDataCalculator.get(parentHeader))
+              .withdrawalsRoot(
+                  withdrawalsCanBeProcessed
+                      ? BodyValidation.withdrawalsRoot(maybeWithdrawals.get())
+                      : null)
               .buildSealableBlockHeader();
 
       final BlockHeader blockHeader = createFinalBlockHeader(sealableBlockHeader);
 
-      return new Block(blockHeader, new BlockBody(transactionResults.getTransactions(), ommers));
+      final Optional<List<Withdrawal>> withdrawals =
+          withdrawalsCanBeProcessed ? maybeWithdrawals : Optional.empty();
+      final Block block =
+          new Block(
+              blockHeader,
+              new BlockBody(transactionResults.getTransactions(), ommers, withdrawals));
+      return new BlockCreationResult(block, transactionResults);
     } catch (final SecurityModuleException ex) {
       throw new IllegalStateException("Failed to create block signature", ex);
-    } catch (final CancellationException ex) {
+    } catch (final CancellationException | StorageException ex) {
       throw ex;
     } catch (final Exception ex) {
-      // TODO(tmm): How are we going to know this has exploded, and thus restart it?
       throw new IllegalStateException(
           "Block creation failed unexpectedly. Will restart on next block added to chain.", ex);
     }
@@ -221,7 +249,8 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
       final ProcessableBlockHeader processableBlockHeader,
       final MutableWorldState disposableWorldState,
       final Optional<List<Transaction>> transactions,
-      final Address miningBeneficiary)
+      final Address miningBeneficiary,
+      final ProtocolSpec protocolSpec)
       throws RuntimeException {
     final MainnetTransactionProcessor transactionProcessor = protocolSpec.getTransactionProcessor();
 
@@ -251,21 +280,27 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
 
   private MutableWorldState duplicateWorldStateAtParent() {
     final Hash parentStateRoot = parentHeader.getStateRoot();
-    final MutableWorldState worldState =
-        protocolContext
-            .getWorldStateArchive()
-            .getMutable(parentStateRoot, parentHeader.getHash(), false)
-            .orElseThrow(
-                () -> {
-                  LOG.info("Unable to create block because world state is not available");
-                  return new CancellationException(
-                      "World state not available for block "
-                          + parentHeader.getNumber()
-                          + " with state root "
-                          + parentStateRoot);
-                });
-
-    return worldState.copy();
+    return protocolContext
+        .getWorldStateArchive()
+        .getMutable(parentStateRoot, parentHeader.getHash(), false)
+        .map(
+            ws -> {
+              if (ws.isPersistable()) {
+                return ws;
+              } else {
+                // non-persistable worldstates should return a copy which is persistable:
+                return ws.copy();
+              }
+            })
+        .orElseThrow(
+            () -> {
+              LOG.info("Unable to create block because world state is not available");
+              return new CancellationException(
+                  "World state not available for block "
+                      + parentHeader.getNumber()
+                      + " with state root "
+                      + parentStateRoot);
+            });
   }
 
   private List<BlockHeader> selectOmmers() {
@@ -273,7 +308,9 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
   }
 
   private ProcessableBlockHeader createPendingBlockHeader(
-      final long timestamp, final Optional<Bytes32> maybePrevRandao) {
+      final long timestamp,
+      final Optional<Bytes32> maybePrevRandao,
+      final ProtocolSpec protocolSpec) {
     final long newBlockNumber = parentHeader.getNumber() + 1;
     long gasLimit =
         protocolSpec
@@ -336,7 +373,8 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
       final List<BlockHeader> ommers,
       final Address miningBeneficiary,
       final Wei blockReward,
-      final boolean skipZeroBlockRewards) {
+      final boolean skipZeroBlockRewards,
+      final ProtocolSpec protocolSpec) {
 
     // TODO(tmm): Added to make this work, should come from blockProcessor.
     final int MAX_GENERATION = 6;

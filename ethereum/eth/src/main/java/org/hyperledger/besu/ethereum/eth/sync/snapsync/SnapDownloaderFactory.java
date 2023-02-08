@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.eth.sync.snapsync;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
@@ -46,6 +47,7 @@ public class SnapDownloaderFactory extends FastDownloaderFactory {
   private static final Logger LOG = LoggerFactory.getLogger(SnapDownloaderFactory.class);
 
   public static Optional<FastSyncDownloader<?>> createSnapDownloader(
+      final SnapPersistedContext snapContext,
       final PivotBlockSelector pivotBlockSelector,
       final SynchronizerConfiguration syncConfig,
       final Path dataDirectory,
@@ -74,7 +76,13 @@ public class SnapDownloaderFactory extends FastDownloaderFactory {
 
     final FastSyncState fastSyncState =
         fastSyncStateStorage.loadState(ScheduleBasedBlockHeaderFunctions.create(protocolSchedule));
-    if (fastSyncState.getPivotBlockHeader().isEmpty()
+
+    if (syncState.isResyncNeeded()) {
+      snapContext.clear();
+      syncState
+          .getAccountToRepair()
+          .ifPresent(address -> snapContext.addInconsistentAccount(Hash.hash(address)));
+    } else if (fastSyncState.getPivotBlockHeader().isEmpty()
         && protocolContext.getBlockchain().getChainHeadBlockNumber()
             != BlockHeader.GENESIS_BLOCK_NUMBER) {
       LOG.info(
@@ -86,13 +94,14 @@ public class SnapDownloaderFactory extends FastDownloaderFactory {
         new SnapSyncState(
             fastSyncStateStorage.loadState(
                 ScheduleBasedBlockHeaderFunctions.create(protocolSchedule)));
-    worldStateStorage.clear();
 
     final InMemoryTasksPriorityQueues<SnapDataRequest> snapTaskCollection =
         createSnapWorldStateDownloaderTaskCollection();
     final WorldStateDownloader snapWorldStateDownloader =
         new SnapWorldStateDownloader(
             ethContext,
+            snapContext,
+            protocolContext,
             worldStateStorage,
             snapTaskCollection,
             syncConfig.getSnapSyncConfiguration(),

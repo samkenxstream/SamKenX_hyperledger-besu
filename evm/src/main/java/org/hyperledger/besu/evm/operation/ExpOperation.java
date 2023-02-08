@@ -19,15 +19,18 @@ import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 
-import java.util.Optional;
-import java.util.OptionalLong;
-
 import org.apache.tuweni.units.bigints.UInt256;
 
+/** The Exp operation. */
 public class ExpOperation extends AbstractOperation {
 
+  /**
+   * Instantiates a new Exp operation.
+   *
+   * @param gasCalculator the gas calculator
+   */
   public ExpOperation(final GasCalculator gasCalculator) {
-    super(0x0A, "EXP", 2, 1, 1, gasCalculator);
+    super(0x0A, "EXP", 2, 1, gasCalculator);
   }
 
   @Override
@@ -39,13 +42,12 @@ public class ExpOperation extends AbstractOperation {
 
     final long cost = gasCalculator().expOperationGasCost(numBytes);
     if (frame.getRemainingGas() < cost) {
-      return new OperationResult(
-          OptionalLong.of(cost), Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
+      return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
 
     final UInt256 result = number.pow(power);
 
     frame.pushStackItem(result);
-    return new OperationResult(OptionalLong.of(cost), Optional.empty());
+    return new OperationResult(cost, null);
   }
 }

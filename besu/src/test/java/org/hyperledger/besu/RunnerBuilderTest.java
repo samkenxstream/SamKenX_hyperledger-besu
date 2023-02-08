@@ -25,6 +25,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.cli.config.EthNetworkConfig;
+import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.config.MergeConfigOptions;
 import org.hyperledger.besu.consensus.common.bft.BftEventQueue;
 import org.hyperledger.besu.consensus.common.bft.network.PeerConnectionTracker;
@@ -36,6 +37,7 @@ import org.hyperledger.besu.controller.BesuController;
 import org.hyperledger.besu.crypto.KeyPairSecurityModule;
 import org.hyperledger.besu.crypto.NodeKey;
 import org.hyperledger.besu.crypto.SECP256K1;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.graphql.GraphQLConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration;
@@ -93,16 +95,17 @@ public final class RunnerBuilderTest {
   @Rule public TemporaryFolder dataDir = new TemporaryFolder();
 
   @Mock BesuController besuController;
+  @Mock ProtocolSchedule protocolSchedule;
+  @Mock ProtocolContext protocolContext;
   @Mock Vertx vertx;
+  private NodeKey nodeKey;
 
   @Before
   public void setup() {
     final SubProtocolConfiguration subProtocolConfiguration = mock(SubProtocolConfiguration.class);
     final EthProtocolManager ethProtocolManager = mock(EthProtocolManager.class);
     final EthContext ethContext = mock(EthContext.class);
-    final ProtocolContext protocolContext = mock(ProtocolContext.class);
-    final NodeKey nodeKey =
-        new NodeKey(new KeyPairSecurityModule(new SECP256K1().generateKeyPair()));
+    nodeKey = new NodeKey(new KeyPairSecurityModule(new SECP256K1().generateKeyPair()));
 
     when(subProtocolConfiguration.getProtocolManagers())
         .thenReturn(
@@ -116,18 +119,27 @@ public final class RunnerBuilderTest {
     when(ethProtocolManager.ethContext()).thenReturn(ethContext);
     when(subProtocolConfiguration.getSubProtocols())
         .thenReturn(Collections.singletonList(new IbftSubProtocol()));
-    when(protocolContext.getBlockchain()).thenReturn(mock(DefaultBlockchain.class));
+    final DefaultBlockchain blockchain = mock(DefaultBlockchain.class);
+    when(protocolContext.getBlockchain()).thenReturn(blockchain);
+    final Block block = mock(Block.class);
+    when(blockchain.getGenesisBlock()).thenReturn(block);
+    when(block.getHash()).thenReturn(Hash.ZERO);
 
     when(besuController.getProtocolManager()).thenReturn(ethProtocolManager);
     when(besuController.getSubProtocolConfiguration()).thenReturn(subProtocolConfiguration);
     when(besuController.getProtocolContext()).thenReturn(protocolContext);
-    when(besuController.getProtocolSchedule()).thenReturn(mock(ProtocolSchedule.class));
+    when(besuController.getProtocolSchedule()).thenReturn(protocolSchedule);
     when(besuController.getNodeKey()).thenReturn(nodeKey);
     when(besuController.getMiningParameters()).thenReturn(mock(MiningParameters.class));
     when(besuController.getPrivacyParameters()).thenReturn(mock(PrivacyParameters.class));
     when(besuController.getTransactionPool()).thenReturn(mock(TransactionPool.class));
     when(besuController.getSynchronizer()).thenReturn(mock(Synchronizer.class));
     when(besuController.getMiningCoordinator()).thenReturn(mock(MiningCoordinator.class));
+    when(besuController.getMiningCoordinator()).thenReturn(mock(MergeMiningCoordinator.class));
+    final GenesisConfigOptions genesisConfigOptions = mock(GenesisConfigOptions.class);
+    when(genesisConfigOptions.getForkBlockNumbers()).thenReturn(Collections.emptyList());
+    when(genesisConfigOptions.getForkBlockTimestamps()).thenReturn(Collections.emptyList());
+    when(besuController.getGenesisConfigOptions()).thenReturn(genesisConfigOptions);
   }
 
   @Test
@@ -154,19 +166,18 @@ public final class RunnerBuilderTest {
             .vertx(vertx)
             .dataDir(dataDir.getRoot().toPath())
             .storageProvider(mock(KeyValueStorageProvider.class))
-            .forkIdSupplier(() -> Collections.singletonList(Bytes.EMPTY))
             .rpcEndpointService(new RpcEndpointServiceImpl())
             .build();
     runner.startEthereumMainLoop();
 
-    final EnodeURL expectedEodeURL =
+    final EnodeURL expectedEnodeURL =
         EnodeURLImpl.builder()
             .ipAddress(p2pAdvertisedHost)
             .discoveryPort(0)
             .listeningPort(p2pListenPort)
-            .nodeId(besuController.getNodeKey().getPublicKey().getEncoded())
+            .nodeId(nodeKey.getPublicKey().getEncoded())
             .build();
-    assertThat(runner.getLocalEnode().orElseThrow()).isEqualTo(expectedEodeURL);
+    assertThat(runner.getLocalEnode().orElseThrow()).isEqualTo(expectedEnodeURL);
   }
 
   @Test
@@ -176,9 +187,9 @@ public final class RunnerBuilderTest {
     final int p2pListenPort = 30301;
     final StorageProvider storageProvider = new InMemoryKeyValueStorageProvider();
     final Block genesisBlock = gen.genesisBlock();
-    final MutableBlockchain blockchain =
+    final MutableBlockchain inMemoryBlockchain =
         createInMemoryBlockchain(genesisBlock, new MainnetBlockHeaderFunctions());
-    when(besuController.getProtocolContext().getBlockchain()).thenReturn(blockchain);
+    when(protocolContext.getBlockchain()).thenReturn(inMemoryBlockchain);
     final Runner runner =
         new RunnerBuilder()
             .discovery(true)
@@ -199,19 +210,19 @@ public final class RunnerBuilderTest {
             .vertx(Vertx.vertx())
             .dataDir(dataDir.getRoot().toPath())
             .storageProvider(storageProvider)
-            .forkIdSupplier(() -> Collections.singletonList(Bytes.EMPTY))
             .rpcEndpointService(new RpcEndpointServiceImpl())
             .build();
     runner.startEthereumMainLoop();
-    when(besuController.getProtocolSchedule().streamMilestoneBlocks())
-        .thenAnswer(__ -> Stream.of(1L, 2L));
+
+    when(protocolSchedule.streamMilestoneBlocks()).thenAnswer(__ -> Stream.of(1L, 2L));
+
     for (int i = 0; i < 2; ++i) {
       final Block block =
           gen.block(
               BlockDataGenerator.BlockOptions.create()
                   .setBlockNumber(1 + i)
-                  .setParentHash(blockchain.getChainHeadHash()));
-      blockchain.appendBlock(block, gen.receipts(block));
+                  .setParentHash(inMemoryBlockchain.getChainHeadHash()));
+      inMemoryBlockchain.appendBlock(block, gen.receipts(block));
       assertThat(
               storageProvider
                   .getStorageBySegmentIdentifier(BLOCKCHAIN)
@@ -225,11 +236,11 @@ public final class RunnerBuilderTest {
 
   @Test
   public void whenEngineApiAddedListensOnDefaultPort() {
-    JsonRpcConfiguration jrpc = JsonRpcConfiguration.createDefault();
+    final JsonRpcConfiguration jrpc = JsonRpcConfiguration.createDefault();
     jrpc.setEnabled(true);
-    JsonRpcConfiguration engine = JsonRpcConfiguration.createEngineDefault();
+    final JsonRpcConfiguration engine = JsonRpcConfiguration.createEngineDefault();
     engine.setEnabled(true);
-    EthNetworkConfig mockMainnet = mock(EthNetworkConfig.class);
+    final EthNetworkConfig mockMainnet = mock(EthNetworkConfig.class);
     when(mockMainnet.getNetworkId()).thenReturn(BigInteger.ONE);
     MergeConfigOptions.setMergeEnabled(true);
     when(besuController.getMiningCoordinator()).thenReturn(mock(MergeMiningCoordinator.class));
@@ -255,7 +266,6 @@ public final class RunnerBuilderTest {
             .vertx(Vertx.vertx())
             .dataDir(dataDir.getRoot().toPath())
             .storageProvider(mock(KeyValueStorageProvider.class))
-            .forkIdSupplier(() -> Collections.singletonList(Bytes.EMPTY))
             .rpcEndpointService(new RpcEndpointServiceImpl())
             .besuPluginContext(mock(BesuPluginContextImpl.class))
             .build();
@@ -266,13 +276,13 @@ public final class RunnerBuilderTest {
 
   @Test
   public void whenEngineApiAddedWebSocketReadyOnSamePort() {
-    WebSocketConfiguration wsRpc = WebSocketConfiguration.createDefault();
+    final WebSocketConfiguration wsRpc = WebSocketConfiguration.createDefault();
     wsRpc.setEnabled(true);
-    EthNetworkConfig mockMainnet = mock(EthNetworkConfig.class);
+    final EthNetworkConfig mockMainnet = mock(EthNetworkConfig.class);
     when(mockMainnet.getNetworkId()).thenReturn(BigInteger.ONE);
     MergeConfigOptions.setMergeEnabled(true);
     when(besuController.getMiningCoordinator()).thenReturn(mock(MergeMiningCoordinator.class));
-    JsonRpcConfiguration engineConf = JsonRpcConfiguration.createEngineDefault();
+    final JsonRpcConfiguration engineConf = JsonRpcConfiguration.createEngineDefault();
     engineConf.setEnabled(true);
 
     final Runner runner =
@@ -296,7 +306,6 @@ public final class RunnerBuilderTest {
             .vertx(Vertx.vertx())
             .dataDir(dataDir.getRoot().toPath())
             .storageProvider(mock(KeyValueStorageProvider.class))
-            .forkIdSupplier(() -> Collections.singletonList(Bytes.EMPTY))
             .rpcEndpointService(new RpcEndpointServiceImpl())
             .besuPluginContext(mock(BesuPluginContextImpl.class))
             .build();
@@ -306,13 +315,13 @@ public final class RunnerBuilderTest {
 
   @Test
   public void whenEngineApiAddedEthSubscribeAvailable() {
-    WebSocketConfiguration wsRpc = WebSocketConfiguration.createDefault();
+    final WebSocketConfiguration wsRpc = WebSocketConfiguration.createDefault();
     wsRpc.setEnabled(true);
-    EthNetworkConfig mockMainnet = mock(EthNetworkConfig.class);
+    final EthNetworkConfig mockMainnet = mock(EthNetworkConfig.class);
     when(mockMainnet.getNetworkId()).thenReturn(BigInteger.ONE);
     MergeConfigOptions.setMergeEnabled(true);
     when(besuController.getMiningCoordinator()).thenReturn(mock(MergeMiningCoordinator.class));
-    JsonRpcConfiguration engineConf = JsonRpcConfiguration.createEngineDefault();
+    final JsonRpcConfiguration engineConf = JsonRpcConfiguration.createEngineDefault();
     engineConf.setEnabled(true);
 
     final Runner runner =
@@ -336,7 +345,6 @@ public final class RunnerBuilderTest {
             .vertx(Vertx.vertx())
             .dataDir(dataDir.getRoot().toPath())
             .storageProvider(mock(KeyValueStorageProvider.class))
-            .forkIdSupplier(() -> Collections.singletonList(Bytes.EMPTY))
             .rpcEndpointService(new RpcEndpointServiceImpl())
             .besuPluginContext(mock(BesuPluginContextImpl.class))
             .build();
@@ -349,14 +357,13 @@ public final class RunnerBuilderTest {
 
   @Test
   public void noEngineApiNoServiceForMethods() {
-    JsonRpcConfiguration defaultRpcConfig = JsonRpcConfiguration.createDefault();
+    final JsonRpcConfiguration defaultRpcConfig = JsonRpcConfiguration.createDefault();
     defaultRpcConfig.setEnabled(true);
-    WebSocketConfiguration defaultWebSockConfig = WebSocketConfiguration.createDefault();
+    final WebSocketConfiguration defaultWebSockConfig = WebSocketConfiguration.createDefault();
     defaultWebSockConfig.setEnabled(true);
-    EthNetworkConfig mockMainnet = mock(EthNetworkConfig.class);
+    final EthNetworkConfig mockMainnet = mock(EthNetworkConfig.class);
     when(mockMainnet.getNetworkId()).thenReturn(BigInteger.ONE);
     MergeConfigOptions.setMergeEnabled(true);
-    when(besuController.getMiningCoordinator()).thenReturn(mock(MergeMiningCoordinator.class));
 
     final Runner runner =
         new RunnerBuilder()
@@ -378,7 +385,6 @@ public final class RunnerBuilderTest {
             .vertx(Vertx.vertx())
             .dataDir(dataDir.getRoot().toPath())
             .storageProvider(mock(KeyValueStorageProvider.class))
-            .forkIdSupplier(() -> Collections.singletonList(Bytes.EMPTY))
             .rpcEndpointService(new RpcEndpointServiceImpl())
             .besuPluginContext(mock(BesuPluginContextImpl.class))
             .build();
@@ -389,16 +395,17 @@ public final class RunnerBuilderTest {
 
   @Test
   public void assertTransitionStratumConfiguration() {
-    JsonRpcConfiguration jrpc = JsonRpcConfiguration.createDefault();
+    final JsonRpcConfiguration jrpc = JsonRpcConfiguration.createDefault();
     jrpc.setEnabled(true);
-    JsonRpcConfiguration engine = JsonRpcConfiguration.createEngineDefault();
+    final JsonRpcConfiguration engine = JsonRpcConfiguration.createEngineDefault();
     engine.setEnabled(true);
-    EthNetworkConfig mockMainnet = mock(EthNetworkConfig.class);
+    final EthNetworkConfig mockMainnet = mock(EthNetworkConfig.class);
     when(mockMainnet.getNetworkId()).thenReturn(BigInteger.ONE);
     MergeConfigOptions.setMergeEnabled(true);
-    MiningParameters mockMiningParams = besuController.getMiningParameters();
+    final MiningParameters mockMiningParams = mock(MiningParameters.class);
+    when(besuController.getMiningParameters()).thenReturn(mockMiningParams);
     when(mockMiningParams.isStratumMiningEnabled()).thenReturn(true);
-    TransitionCoordinator mockTransitionCoordinator =
+    final TransitionCoordinator mockTransitionCoordinator =
         spy(
             new TransitionCoordinator(
                 mock(PoWMiningCoordinator.class), mock(MergeMiningCoordinator.class)));
@@ -424,7 +431,6 @@ public final class RunnerBuilderTest {
         .vertx(Vertx.vertx())
         .dataDir(dataDir.getRoot().toPath())
         .storageProvider(mock(KeyValueStorageProvider.class))
-        .forkIdSupplier(() -> Collections.singletonList(Bytes.EMPTY))
         .rpcEndpointService(new RpcEndpointServiceImpl())
         .besuPluginContext(mock(BesuPluginContextImpl.class))
         .build();

@@ -18,9 +18,12 @@ package org.hyperledger.besu.ethereum.referencetests;
 import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.config.StubGenesisConfigOptions;
 import org.hyperledger.besu.ethereum.core.PrivacyParameters;
+import org.hyperledger.besu.ethereum.mainnet.HeaderBasedProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleBuilder;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpecAdapters;
+import org.hyperledger.besu.ethereum.mainnet.TimestampSchedule;
+import org.hyperledger.besu.ethereum.mainnet.TimestampScheduleBuilder;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 
 import java.math.BigInteger;
@@ -39,7 +42,8 @@ public class ReferenceTestProtocolSchedules {
       Arrays.asList("Frontier", "Homestead", "EIP150");
 
   public static ReferenceTestProtocolSchedules create() {
-    final ImmutableMap.Builder<String, ProtocolSchedule> builder = ImmutableMap.builder();
+    final ImmutableMap.Builder<String, HeaderBasedProtocolSchedule> builder =
+        ImmutableMap.builder();
     builder.put("Frontier", createSchedule(new StubGenesisConfigOptions()));
     builder.put(
         "FrontierToHomesteadAt5", createSchedule(new StubGenesisConfigOptions().homesteadBlock(5)));
@@ -64,20 +68,32 @@ public class ReferenceTestProtocolSchedules {
     builder.put("Istanbul", createSchedule(new StubGenesisConfigOptions().istanbulBlock(0)));
     builder.put("MuirGlacier", createSchedule(new StubGenesisConfigOptions().muirGlacierBlock(0)));
     builder.put("Berlin", createSchedule(new StubGenesisConfigOptions().berlinBlock(0)));
-    builder.put("London", createSchedule(new StubGenesisConfigOptions().londonBlock(0)));
+    builder.put(
+        "London",
+        createSchedule(new StubGenesisConfigOptions().londonBlock(0).baseFeePerGas(0x0a)));
     builder.put(
         "ArrowGlacier", createSchedule(new StubGenesisConfigOptions().arrowGlacierBlock(0)));
     builder.put("GrayGlacier", createSchedule(new StubGenesisConfigOptions().grayGlacierBlock(0)));
+    builder.put(
+        "Merge",
+        createSchedule(new StubGenesisConfigOptions().mergeNetSplitBlock(0).baseFeePerGas(0x0a)));
+    builder.put(
+        "Shanghai",
+        createTimestampSchedule(
+            new StubGenesisConfigOptions().shanghaiTime(0).baseFeePerGas(0x0a)));
+    builder.put(
+        "Cancun",
+        createTimestampSchedule(new StubGenesisConfigOptions().cancunTime(0).baseFeePerGas(0x0a)));
     return new ReferenceTestProtocolSchedules(builder.build());
   }
 
-  private final Map<String, ProtocolSchedule> schedules;
+  private final Map<String, HeaderBasedProtocolSchedule> schedules;
 
-  private ReferenceTestProtocolSchedules(final Map<String, ProtocolSchedule> schedules) {
+  private ReferenceTestProtocolSchedules(final Map<String, HeaderBasedProtocolSchedule> schedules) {
     this.schedules = schedules;
   }
 
-  public ProtocolSchedule getByName(final String name) {
+  public HeaderBasedProtocolSchedule getByName(final String name) {
     return schedules.get(name);
   }
 
@@ -91,6 +107,18 @@ public class ReferenceTestProtocolSchedules {
             options.isQuorum(),
             EvmConfiguration.DEFAULT)
         .createProtocolSchedule();
+  }
+
+  private static TimestampSchedule createTimestampSchedule(final GenesisConfigOptions options) {
+    return new TimestampScheduleBuilder(
+            options,
+            CHAIN_ID,
+            ProtocolSpecAdapters.create(0, Function.identity()),
+            PrivacyParameters.DEFAULT,
+            false,
+            options.isQuorum(),
+            EvmConfiguration.DEFAULT)
+        .createTimestampSchedule();
   }
 
   public static boolean shouldClearEmptyAccounts(final String fork) {

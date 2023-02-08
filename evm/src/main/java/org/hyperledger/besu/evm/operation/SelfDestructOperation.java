@@ -24,13 +24,16 @@ import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.internal.Words;
 
-import java.util.Optional;
-import java.util.OptionalLong;
-
+/** The Self destruct operation. */
 public class SelfDestructOperation extends AbstractOperation {
 
+  /**
+   * Instantiates a new Self destruct operation.
+   *
+   * @param gasCalculator the gas calculator
+   */
   public SelfDestructOperation(final GasCalculator gasCalculator) {
-    super(0xFF, "SELFDESTRUCT", 1, 0, 1, gasCalculator);
+    super(0xFF, "SELFDESTRUCT", 1, 0, gasCalculator);
   }
 
   @Override
@@ -49,11 +52,9 @@ public class SelfDestructOperation extends AbstractOperation {
             + (accountIsWarm ? 0L : gasCalculator().getColdAccountAccessCost());
 
     if (frame.isStatic()) {
-      return new OperationResult(
-          OptionalLong.of(cost), Optional.of(ExceptionalHaltReason.ILLEGAL_STATE_CHANGE));
+      return new OperationResult(cost, ExceptionalHaltReason.ILLEGAL_STATE_CHANGE);
     } else if (frame.getRemainingGas() < cost) {
-      return new OperationResult(
-          OptionalLong.of(cost), Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
+      return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
 
     final Address address = frame.getRecipientAddress();
@@ -74,6 +75,6 @@ public class SelfDestructOperation extends AbstractOperation {
     account.setBalance(Wei.ZERO);
 
     frame.setState(MessageFrame.State.CODE_SUCCESS);
-    return new OperationResult(OptionalLong.of(cost), Optional.empty());
+    return new OperationResult(cost, null);
   }
 }

@@ -19,40 +19,53 @@ import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 
-import java.util.Optional;
-import java.util.OptionalLong;
-
+/** The Dup operation. */
 public class DupOperation extends AbstractFixedCostOperation {
 
+  /** The constant DUP_BASE. */
+  public static final int DUP_BASE = 0x7F;
+  /** The Dup success operation result. */
+  static final OperationResult dupSuccess = new OperationResult(3, null);
+  /** The Underflow response. */
   protected final Operation.OperationResult underflowResponse;
 
   private final int index;
 
+  /**
+   * Instantiates a new Dup operation.
+   *
+   * @param index the index
+   * @param gasCalculator the gas calculator
+   */
   public DupOperation(final int index, final GasCalculator gasCalculator) {
     super(
         0x80 + index - 1,
         "DUP" + index,
         index,
         index + 1,
-        1,
         gasCalculator,
         gasCalculator.getVeryLowTierGasCost());
     this.index = index;
     this.underflowResponse =
-        new Operation.OperationResult(
-            OptionalLong.of(gasCost), Optional.of(ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS));
+        new Operation.OperationResult(gasCost, ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
   }
 
   @Override
   public Operation.OperationResult executeFixedCostOperation(
       final MessageFrame frame, final EVM evm) {
-    // getStackItem won't throw under/overflows.  Check explicitly.
-    if (frame.stackSize() < getStackItemsConsumed()) {
-      return underflowResponse;
-    }
+    return staticOperation(frame, index);
+  }
 
+  /**
+   * Performs Dup operation.
+   *
+   * @param frame the frame
+   * @param index the index
+   * @return the operation result
+   */
+  public static OperationResult staticOperation(final MessageFrame frame, final int index) {
     frame.pushStackItem(frame.getStackItem(index - 1));
 
-    return successResponse;
+    return dupSuccess;
   }
 }

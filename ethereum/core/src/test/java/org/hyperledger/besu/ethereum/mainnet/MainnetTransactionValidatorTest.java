@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.mainnet;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.GAS_PRICE_BELOW_CURRENT_BASE_FEE;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.GAS_PRICE_MUST_BE_ZERO;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.INVALID_TRANSACTION_FORMAT;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.MAX_PRIORITY_FEE_PER_GAS_EXCEEDS_MAX_FEE_PER_GAS;
@@ -44,8 +45,8 @@ import org.hyperledger.besu.plugin.data.TransactionType;
 import java.math.BigInteger;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 
-import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.Test;
@@ -142,7 +143,7 @@ public class MainnetTransactionValidatorTest {
 
     final Account account = accountWithNonce(basicTransaction.getNonce() - 1);
     assertThat(validator.validateForSender(basicTransaction, account, false))
-        .isEqualTo(ValidationResult.invalid(TransactionInvalidReason.INCORRECT_NONCE));
+        .isEqualTo(ValidationResult.invalid(TransactionInvalidReason.NONCE_TOO_HIGH));
   }
 
   @Test
@@ -168,7 +169,7 @@ public class MainnetTransactionValidatorTest {
     final Account account = accountWithNonce(5);
 
     assertThat(validator.validateForSender(transaction, account, false))
-        .isEqualTo(ValidationResult.invalid(TransactionInvalidReason.INCORRECT_NONCE));
+        .isEqualTo(ValidationResult.invalid(TransactionInvalidReason.NONCE_TOO_HIGH));
   }
 
   @Test
@@ -257,8 +258,12 @@ public class MainnetTransactionValidatorTest {
             FeeMarket.london(0L),
             false,
             Optional.of(BigInteger.ONE),
-            Set.of(TransactionType.values()),
-            defaultGoQuorumCompatibilityMode);
+            Set.of(
+                new TransactionType[] {
+                  TransactionType.FRONTIER, TransactionType.ACCESS_LIST, TransactionType.EIP1559
+                }),
+            defaultGoQuorumCompatibilityMode,
+            Integer.MAX_VALUE);
     validator.setTransactionFilter(transactionFilter(true));
 
     final Transaction transaction =
@@ -341,7 +346,8 @@ public class MainnetTransactionValidatorTest {
             false,
             Optional.of(BigInteger.ONE),
             Set.of(TransactionType.FRONTIER),
-            defaultGoQuorumCompatibilityMode);
+            defaultGoQuorumCompatibilityMode,
+            Integer.MAX_VALUE);
 
     final MainnetTransactionValidator eip1559Validator =
         new MainnetTransactionValidator(
@@ -350,7 +356,8 @@ public class MainnetTransactionValidatorTest {
             false,
             Optional.of(BigInteger.ONE),
             Set.of(TransactionType.FRONTIER, TransactionType.EIP1559),
-            defaultGoQuorumCompatibilityMode);
+            defaultGoQuorumCompatibilityMode,
+            Integer.MAX_VALUE);
 
     final Transaction transaction =
         new TransactionTestFixture()
@@ -382,7 +389,8 @@ public class MainnetTransactionValidatorTest {
             false,
             Optional.of(BigInteger.ONE),
             Set.of(TransactionType.FRONTIER, TransactionType.EIP1559),
-            defaultGoQuorumCompatibilityMode);
+            defaultGoQuorumCompatibilityMode,
+            Integer.MAX_VALUE);
     final Transaction transaction =
         new TransactionTestFixture()
             .type(TransactionType.EIP1559)
@@ -392,7 +400,7 @@ public class MainnetTransactionValidatorTest {
             .createTransaction(senderKeys);
     final Optional<Wei> basefee = Optional.of(Wei.of(150000L));
     assertThat(validator.validate(transaction, basefee, transactionValidationParams))
-        .isEqualTo(ValidationResult.invalid(INVALID_TRANSACTION_FORMAT));
+        .isEqualTo(ValidationResult.invalid(GAS_PRICE_BELOW_CURRENT_BASE_FEE));
   }
 
   @Test
@@ -405,7 +413,8 @@ public class MainnetTransactionValidatorTest {
             false,
             Optional.of(BigInteger.ONE),
             Set.of(TransactionType.FRONTIER, TransactionType.EIP1559),
-            defaultGoQuorumCompatibilityMode);
+            defaultGoQuorumCompatibilityMode,
+            Integer.MAX_VALUE);
     final Transaction transaction =
         new TransactionTestFixture()
             .type(TransactionType.EIP1559)
@@ -427,7 +436,8 @@ public class MainnetTransactionValidatorTest {
             false,
             Optional.of(BigInteger.ONE),
             Set.of(TransactionType.FRONTIER, TransactionType.EIP1559),
-            defaultGoQuorumCompatibilityMode);
+            defaultGoQuorumCompatibilityMode,
+            Integer.MAX_VALUE);
     final Transaction transaction =
         new TransactionTestFixture()
             .maxPriorityFeePerGas(Optional.of(Wei.of(1)))
@@ -451,7 +461,8 @@ public class MainnetTransactionValidatorTest {
             false,
             Optional.of(BigInteger.ONE),
             Set.of(TransactionType.FRONTIER, TransactionType.EIP1559),
-            defaultGoQuorumCompatibilityMode);
+            defaultGoQuorumCompatibilityMode,
+            Integer.MAX_VALUE);
     final Transaction transaction =
         new TransactionTestFixture()
             .maxPriorityFeePerGas(Optional.of(Wei.of(1)))
@@ -465,6 +476,33 @@ public class MainnetTransactionValidatorTest {
             validator.validate(
                 transaction, Optional.of(Wei.ONE), TransactionValidationParams.transactionPool()))
         .isEqualTo(ValidationResult.valid());
+  }
+
+  @Test
+  public void shouldRejectTooLargeInitcode() {
+    final MainnetTransactionValidator validator =
+        new MainnetTransactionValidator(
+            gasCalculator,
+            FeeMarket.london(0L),
+            false,
+            Optional.of(BigInteger.ONE),
+            Set.of(TransactionType.FRONTIER, TransactionType.EIP1559),
+            defaultGoQuorumCompatibilityMode,
+            0xc000);
+
+    var bigPayload =
+        new TransactionTestFixture()
+            .payload(Bytes.fromHexString("0x" + "00".repeat(0xc001)))
+            .chainId(Optional.of(BigInteger.ONE))
+            .createTransaction(senderKeys);
+    var validationResult =
+        validator.validate(bigPayload, Optional.empty(), transactionValidationParams);
+
+    assertThat(validationResult.isValid()).isFalse();
+    assertThat(validationResult.getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.INITCODE_TOO_LARGE);
+    assertThat(validationResult.getErrorMessage())
+        .isEqualTo("Initcode size of 49153 exceeds maximum size of 49152");
   }
 
   @Test

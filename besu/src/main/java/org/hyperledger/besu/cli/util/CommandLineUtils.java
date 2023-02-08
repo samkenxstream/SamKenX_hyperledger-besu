@@ -24,12 +24,17 @@ import com.google.common.base.Strings;
 import org.slf4j.Logger;
 import picocli.CommandLine;
 
+/** The Command line utils. */
 public class CommandLineUtils {
+  /** The constant DEPENDENCY_WARNING_MSG. */
   public static final String DEPENDENCY_WARNING_MSG =
       "{} has been ignored because {} was not defined on the command line.";
+  /** The constant MULTI_DEPENDENCY_WARNING_MSG. */
   public static final String MULTI_DEPENDENCY_WARNING_MSG =
       "{} ignored because none of {} was defined.";
+  /** The constant DEPRECATION_WARNING_MSG. */
   public static final String DEPRECATION_WARNING_MSG = "{} has been deprecated, use {} instead.";
+  /** The constant DEPRECATED_AND_USELESS_WARNING_MSG. */
   public static final String DEPRECATED_AND_USELESS_WARNING_MSG =
       "{} has been deprecated and is now useless, remove it.";
 
@@ -93,6 +98,28 @@ public class CommandLineUtils {
 
       if (!affectedOptions.isEmpty()) {
         logger.warn(stringToLog);
+      }
+    }
+  }
+
+  /**
+   * Fail if option doesnt meet requirement.
+   *
+   * @param commandLine the command line
+   * @param errorMessage the error message
+   * @param requirement the requirement
+   * @param dependentOptionsNames the dependent options names
+   */
+  public static void failIfOptionDoesntMeetRequirement(
+      final CommandLine commandLine,
+      final String errorMessage,
+      final boolean requirement,
+      final List<String> dependentOptionsNames) {
+    if (!requirement) {
+      final String affectedOptions = getAffectedOptions(commandLine, dependentOptionsNames);
+
+      if (!affectedOptions.isEmpty()) {
+        throw new CommandLine.ParameterException(commandLine, errorMessage);
       }
     }
   }

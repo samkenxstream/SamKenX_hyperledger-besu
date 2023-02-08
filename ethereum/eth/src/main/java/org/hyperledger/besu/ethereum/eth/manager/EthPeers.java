@@ -14,9 +14,12 @@
  */
 package org.hyperledger.besu.ethereum.eth.manager;
 
+import static org.hyperledger.besu.util.Slf4jLambdaHelper.infoLambda;
+
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer.DisconnectCallback;
 import org.hyperledger.besu.ethereum.eth.peervalidation.PeerValidator;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.permissioning.NodeMessagePermissioningProvider;
@@ -36,14 +39,20 @@ import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import com.google.common.annotations.VisibleForTesting;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 public class EthPeers {
+  private static final Logger LOG = LoggerFactory.getLogger(EthPeers.class);
   public static final Comparator<EthPeer> TOTAL_DIFFICULTY =
       Comparator.comparing(((final EthPeer p) -> p.chainState().getEstimatedTotalDifficulty()));
 
   public static final Comparator<EthPeer> CHAIN_HEIGHT =
       Comparator.comparing(((final EthPeer p) -> p.chainState().getEstimatedHeight()));
 
-  public static final Comparator<EthPeer> BEST_CHAIN = TOTAL_DIFFICULTY.thenComparing(CHAIN_HEIGHT);
+  public static final Comparator<EthPeer> HEAVIEST_CHAIN =
+      TOTAL_DIFFICULTY.thenComparing(CHAIN_HEIGHT);
 
   public static final Comparator<EthPeer> LEAST_TO_MOST_BUSY =
       Comparator.comparing(EthPeer::outstandingRequests)
@@ -58,6 +67,8 @@ public class EthPeers {
   private final Subscribers<ConnectCallback> connectCallbacks = Subscribers.create();
   private final Subscribers<DisconnectCallback> disconnectCallbacks = Subscribers.create();
   private final Collection<PendingPeerRequest> pendingRequests = new CopyOnWriteArrayList<>();
+
+  private Comparator<EthPeer> bestPeerComparator;
 
   public EthPeers(
       final String protocolName,
@@ -80,6 +91,12 @@ public class EthPeers {
     this.permissioningProviders = permissioningProviders;
     this.maxPeers = maxPeers;
     this.maxMessageSize = maxMessageSize;
+    this.bestPeerComparator = HEAVIEST_CHAIN;
+    metricsSystem.createIntegerGauge(
+        BesuMetricCategory.ETHEREUM,
+        "peer_count",
+        "The current number of peers connected",
+        () -> (int) streamAvailablePeers().count());
     metricsSystem.createIntegerGauge(
         BesuMetricCategory.PEERS,
         "pending_peer_requests_current",
@@ -99,6 +116,7 @@ public class EthPeers {
             clock,
             permissioningProviders);
     connections.putIfAbsent(peerConnection, peer);
+    LOG.debug("Adding new EthPeer {}", peer.nodeId());
   }
 
   public void registerDisconnect(final PeerConnection connection) {
@@ -107,6 +125,7 @@ public class EthPeers {
       disconnectCallbacks.forEach(callback -> callback.onDisconnect(peer));
       peer.handleDisconnect();
       abortPendingRequestsAssignedToDisconnectedPeers();
+      LOG.debug("Disconnected EthPeer {}", peer);
     }
     reattemptPendingPeerRequests();
   }
@@ -141,8 +160,8 @@ public class EthPeers {
 
   public void dispatchMessage(
       final EthPeer peer, final EthMessage ethMessage, final String protocolName) {
-    peer.dispatch(ethMessage, protocolName);
-    if (peer.hasAvailableRequestCapacity()) {
+    Optional<RequestManager> maybeRequestManager = peer.dispatch(ethMessage, protocolName);
+    if (maybeRequestManager.isPresent() && peer.hasAvailableRequestCapacity()) {
       reattemptPendingPeerRequests();
     }
   }
@@ -151,9 +170,17 @@ public class EthPeers {
     dispatchMessage(peer, ethMessage, protocolName);
   }
 
-  private void reattemptPendingPeerRequests() {
+  @VisibleForTesting
+  void reattemptPendingPeerRequests() {
     synchronized (this) {
-      pendingRequests.removeIf(PendingPeerRequest::attemptExecution);
+      final List<EthPeer> peers = streamAvailablePeers().collect(Collectors.toList());
+      final Iterator<PendingPeerRequest> iterator = pendingRequests.iterator();
+      while (iterator.hasNext() && peers.stream().anyMatch(EthPeer::hasAvailableRequestCapacity)) {
+        final PendingPeerRequest request = iterator.next();
+        if (request.attemptExecution()) {
+          pendingRequests.remove(request);
+        }
+      }
     }
   }
 
@@ -181,16 +208,28 @@ public class EthPeers {
     return connections.values().stream();
   }
 
+  private void removeDisconnectedPeers() {
+    final Collection<EthPeer> peerStream = connections.values();
+    for (EthPeer p : peerStream) {
+      if (p.isDisconnected()) {
+        connections.remove(p.getConnection());
+      }
+    }
+  }
+
   public Stream<EthPeer> streamAvailablePeers() {
-    return streamAllPeers().filter(EthPeer::readyForRequests);
+    removeDisconnectedPeers();
+    return streamAllPeers()
+        .filter(EthPeer::readyForRequests)
+        .filter(peer -> !peer.isDisconnected());
   }
 
   public Stream<EthPeer> streamBestPeers() {
-    return streamAvailablePeers().sorted(BEST_CHAIN.reversed());
+    return streamAvailablePeers().sorted(getBestChainComparator().reversed());
   }
 
   public Optional<EthPeer> bestPeer() {
-    return streamAvailablePeers().max(BEST_CHAIN);
+    return streamAvailablePeers().max(getBestChainComparator());
   }
 
   public Optional<EthPeer> bestPeerWithHeightEstimate() {
@@ -199,7 +238,32 @@ public class EthPeers {
   }
 
   public Optional<EthPeer> bestPeerMatchingCriteria(final Predicate<EthPeer> matchesCriteria) {
-    return streamAvailablePeers().filter(matchesCriteria).max(BEST_CHAIN);
+    return streamAvailablePeers().filter(matchesCriteria).max(getBestChainComparator());
+  }
+
+  public void setBestChainComparator(final Comparator<EthPeer> comparator) {
+    LOG.info("Updating the default best peer comparator");
+    bestPeerComparator = comparator;
+  }
+
+  public Comparator<EthPeer> getBestChainComparator() {
+    return bestPeerComparator;
+  }
+
+  public void disconnectWorstUselessPeer() {
+    streamAvailablePeers()
+        .sorted(getBestChainComparator())
+        .findFirst()
+        .ifPresent(
+            peer -> {
+              infoLambda(
+                  LOG,
+                  "disconnecting peer {}. Waiting for better peers. Current {} of max {}",
+                  peer::toString,
+                  this::peerCount,
+                  this::getMaxPeers);
+              peer.disconnect(DisconnectMessage.DisconnectReason.USELESS_PEER);
+            });
   }
 
   @FunctionalInterface

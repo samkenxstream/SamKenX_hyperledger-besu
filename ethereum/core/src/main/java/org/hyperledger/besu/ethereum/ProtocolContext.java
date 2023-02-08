@@ -15,8 +15,11 @@
 package org.hyperledger.besu.ethereum;
 
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
+import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
+
+import java.util.Optional;
 
 /**
  * Holds the mutable state used to track the current context of the protocol. This is primarily the
@@ -28,6 +31,8 @@ public class ProtocolContext {
   private final WorldStateArchive worldStateArchive;
   private final ConsensusContext consensusContext;
 
+  private Optional<Synchronizer> synchronizer;
+
   public ProtocolContext(
       final MutableBlockchain blockchain,
       final WorldStateArchive worldStateArchive,
@@ -35,6 +40,7 @@ public class ProtocolContext {
     this.blockchain = blockchain;
     this.worldStateArchive = worldStateArchive;
     this.consensusContext = consensusContext;
+    this.synchronizer = Optional.empty();
   }
 
   public static ProtocolContext init(
@@ -48,6 +54,14 @@ public class ProtocolContext {
         consensusContextFactory.create(blockchain, worldStateArchive, protocolSchedule));
   }
 
+  public Optional<Synchronizer> getSynchronizer() {
+    return synchronizer;
+  }
+
+  public void setSynchronizer(final Optional<Synchronizer> synchronizer) {
+    this.synchronizer = synchronizer;
+  }
+
   public MutableBlockchain getBlockchain() {
     return blockchain;
   }
@@ -58,5 +72,11 @@ public class ProtocolContext {
 
   public <C extends ConsensusContext> C getConsensusContext(final Class<C> klass) {
     return consensusContext.as(klass);
+  }
+
+  public <C extends ConsensusContext> Optional<C> safeConsensusContext(final Class<C> klass) {
+    return Optional.ofNullable(consensusContext)
+        .filter(c -> klass.isAssignableFrom(c.getClass()))
+        .map(klass::cast);
   }
 }

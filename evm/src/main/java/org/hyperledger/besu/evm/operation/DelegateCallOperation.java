@@ -23,19 +23,16 @@ import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.internal.Words;
 
+/** The Delegate call operation. */
 public class DelegateCallOperation extends AbstractCallOperation {
 
+  /**
+   * Instantiates a new Delegate call operation.
+   *
+   * @param gasCalculator the gas calculator
+   */
   public DelegateCallOperation(final GasCalculator gasCalculator) {
-    super(0xF4, "DELEGATECALL", 6, 1, 1, gasCalculator);
-  }
-
-  @Override
-  protected long gas(final MessageFrame frame) {
-    try {
-      return frame.getStackItem(0).trimLeadingZeros().toLong();
-    } catch (final ArithmeticException | IllegalArgumentException ae) {
-      return Long.MAX_VALUE;
-    }
+    super(0xF4, "DELEGATECALL", 6, 1, gasCalculator);
   }
 
   @Override

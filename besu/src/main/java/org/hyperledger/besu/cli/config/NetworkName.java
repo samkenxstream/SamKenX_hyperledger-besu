@@ -15,46 +15,116 @@
 package org.hyperledger.besu.cli.config;
 
 import java.math.BigInteger;
+import java.util.Optional;
 
+import org.apache.commons.lang3.StringUtils;
+
+/** The enum Network name. */
 public enum NetworkName {
+  /** Mainnet network name. */
   MAINNET("/mainnet.json", BigInteger.valueOf(1)),
+  /** Rinkeby network name. */
   RINKEBY("/rinkeby.json", BigInteger.valueOf(4)),
-  ROPSTEN("/ropsten.json", BigInteger.valueOf(3)),
+  /** Sepolia network name. */
   SEPOLIA("/sepolia.json", BigInteger.valueOf(11155111)),
+  /** Goerli network name. */
   GOERLI("/goerli.json", BigInteger.valueOf(5)),
-  KILN("/kiln.json", BigInteger.valueOf(1337802), false),
+  /** Dev network name. */
   DEV("/dev.json", BigInteger.valueOf(2018), false),
+  /** Future EIPs network name. */
+  FUTURE_EIPS("/future.json", BigInteger.valueOf(2022), false),
+  /** Experimental EIPs network name. */
+  EXPERIMENTAL_EIPS("/experimental.json", BigInteger.valueOf(2023), false),
+  /** Classic network name. */
   CLASSIC("/classic.json", BigInteger.valueOf(1)),
+  /** Kotti network name. */
   KOTTI("/kotti.json", BigInteger.valueOf(6)),
+  /** Mordor network name. */
   MORDOR("/mordor.json", BigInteger.valueOf(7)),
-  ECIP1049_DEV("/ecip1049_dev.json", BigInteger.valueOf(2021)),
-  ASTOR("/astor.json", BigInteger.valueOf(212));
+  /** Ecip 1049 dev network name. */
+  ECIP1049_DEV("/ecip1049_dev.json", BigInteger.valueOf(2021));
 
   private final String genesisFile;
   private final BigInteger networkId;
   private final boolean canFastSync;
+  private final String deprecationDate;
 
   NetworkName(final String genesisFile, final BigInteger networkId) {
-    this.genesisFile = genesisFile;
-    this.networkId = networkId;
-    this.canFastSync = true;
+    this(genesisFile, networkId, true);
   }
 
   NetworkName(final String genesisFile, final BigInteger networkId, final boolean canFastSync) {
     this.genesisFile = genesisFile;
     this.networkId = networkId;
     this.canFastSync = canFastSync;
+
+    // https://blog.ethereum.org/2022/06/21/testnet-deprecation/
+    switch (networkId.intValue()) {
+      case 3:
+        deprecationDate = "in Q4 2022";
+        break;
+      case 4:
+        deprecationDate = "in Q2/Q3 2023";
+        break;
+      case 1337802:
+        deprecationDate = "after the Mainnet Merge";
+        break;
+      default:
+        deprecationDate = null;
+    }
   }
 
+  /**
+   * Gets genesis file.
+   *
+   * @return the genesis file
+   */
   public String getGenesisFile() {
     return genesisFile;
   }
 
+  /**
+   * Gets network id.
+   *
+   * @return the network id
+   */
   public BigInteger getNetworkId() {
     return networkId;
   }
 
+  /**
+   * Can fast sync boolean.
+   *
+   * @return the boolean
+   */
   public boolean canFastSync() {
     return canFastSync;
+  }
+
+  /**
+   * Normalize string.
+   *
+   * @return the string
+   */
+  public String normalize() {
+    return StringUtils.capitalize(name().toLowerCase());
+  }
+
+  /**
+   * Is deprecated boolean.
+   *
+   * @return the boolean
+   */
+  public boolean isDeprecated() {
+    return deprecationDate != null;
+  }
+
+  /**
+   * Gets deprecation date.
+   *
+   * @return the deprecation date
+   */
+  public Optional<String> getDeprecationDate() {
+    return Optional.ofNullable(deprecationDate);
   }
 }

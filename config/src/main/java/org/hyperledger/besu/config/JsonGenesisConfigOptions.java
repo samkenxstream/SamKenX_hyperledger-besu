@@ -30,12 +30,11 @@ import java.util.TreeMap;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Streams;
 import org.apache.tuweni.units.bigints.UInt256;
 
+/** The Json genesis config options. */
 public class JsonGenesisConfigOptions implements GenesisConfigOptions {
 
   private static final String ETHASH_CONFIG_KEY = "ethash";
@@ -48,29 +47,37 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
   private static final String TRANSITIONS_CONFIG_KEY = "transitions";
   private static final String DISCOVERY_CONFIG_KEY = "discovery";
   private static final String CHECKPOINT_CONFIG_KEY = "checkpoint";
+  private static final String ZERO_BASE_FEE_KEY = "zerobasefee";
 
   private final ObjectNode configRoot;
   private final Map<String, String> configOverrides = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
   private final TransitionsConfigOptions transitions;
 
+  /**
+   * From json object json genesis config options.
+   *
+   * @param configRoot the config root
+   * @return the json genesis config options
+   */
   public static JsonGenesisConfigOptions fromJsonObject(final ObjectNode configRoot) {
     return fromJsonObjectWithOverrides(configRoot, emptyMap());
   }
 
+  /**
+   * From json object with overrides json genesis config options.
+   *
+   * @param configRoot the config root
+   * @param configOverrides the config overrides
+   * @return the json genesis config options
+   */
   static JsonGenesisConfigOptions fromJsonObjectWithOverrides(
       final ObjectNode configRoot, final Map<String, String> configOverrides) {
     final TransitionsConfigOptions transitionsConfigOptions;
-    try {
-      transitionsConfigOptions = loadTransitionsFrom(configRoot);
-    } catch (final JsonProcessingException e) {
-      throw new RuntimeException("Transitions section of genesis file failed to decode.", e);
-    }
+    transitionsConfigOptions = loadTransitionsFrom(configRoot);
     return new JsonGenesisConfigOptions(configRoot, configOverrides, transitionsConfigOptions);
   }
 
-  private static TransitionsConfigOptions loadTransitionsFrom(final ObjectNode parentNode)
-      throws JsonProcessingException {
-
+  private static TransitionsConfigOptions loadTransitionsFrom(final ObjectNode parentNode) {
     final Optional<ObjectNode> transitionsNode =
         JsonUtil.getObjectNode(parentNode, TRANSITIONS_CONFIG_KEY);
     if (transitionsNode.isEmpty()) {
@@ -80,6 +87,13 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
     return new TransitionsConfigOptions(transitionsNode.get());
   }
 
+  /**
+   * Instantiates a new Json genesis config options.
+   *
+   * @param maybeConfig the optional config
+   * @param configOverrides the config overrides map
+   * @param transitionsConfig the transitions configuration
+   */
   JsonGenesisConfigOptions(
       final ObjectNode maybeConfig,
       final Map<String, String> configOverrides,
@@ -281,14 +295,28 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
   }
 
   @Override
-  public OptionalLong getParisBlockNumber() {
-    var parisBlock = getOptionalLong("parisblock");
-    var preMergeAlias = getOptionalLong("premergeforkblock");
-    if (parisBlock.isPresent() && preMergeAlias.isPresent()) {
-      throw new RuntimeException(
-          "Found both paris and preMergeFork blocks.  Should have one or the other");
-    }
-    return Streams.concat(parisBlock.stream(), preMergeAlias.stream()).findFirst();
+  public OptionalLong getMergeNetSplitBlockNumber() {
+    return getOptionalLong("mergenetsplitblock");
+  }
+
+  @Override
+  public OptionalLong getShanghaiTime() {
+    return getOptionalLong("shanghaitime");
+  }
+
+  @Override
+  public OptionalLong getCancunTime() {
+    return getOptionalLong("cancuntime");
+  }
+
+  @Override
+  public OptionalLong getFutureEipsTime() {
+    return getOptionalLong("futureeipstime");
+  }
+
+  @Override
+  public OptionalLong getExperimentalEipsTime() {
+    return getOptionalLong("experimentaleipstime");
   }
 
   @Override
@@ -417,27 +445,20 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
   }
 
   @Override
+  public boolean isZeroBaseFee() {
+    return getOptionalBoolean(ZERO_BASE_FEE_KEY).orElse(false);
+  }
+
+  @Override
   public Map<String, Object> asMap() {
     final ImmutableMap.Builder<String, Object> builder = ImmutableMap.builder();
     getChainId().ifPresent(chainId -> builder.put("chainId", chainId));
 
     // mainnet fork blocks
     getHomesteadBlockNumber().ifPresent(l -> builder.put("homesteadBlock", l));
-    getDaoForkBlock()
-        .ifPresent(
-            l -> {
-              builder.put("daoForkBlock", l);
-            });
-    getTangerineWhistleBlockNumber()
-        .ifPresent(
-            l -> {
-              builder.put("eip150Block", l);
-            });
-    getSpuriousDragonBlockNumber()
-        .ifPresent(
-            l -> {
-              builder.put("eip158Block", l);
-            });
+    getDaoForkBlock().ifPresent(l -> builder.put("daoForkBlock", l));
+    getTangerineWhistleBlockNumber().ifPresent(l -> builder.put("eip150Block", l));
+    getSpuriousDragonBlockNumber().ifPresent(l -> builder.put("eip158Block", l));
     getByzantiumBlockNumber().ifPresent(l -> builder.put("byzantiumBlock", l));
     getConstantinopleBlockNumber().ifPresent(l -> builder.put("constantinopleBlock", l));
     getPetersburgBlockNumber().ifPresent(l -> builder.put("petersburgBlock", l));
@@ -447,9 +468,13 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
     getLondonBlockNumber().ifPresent(l -> builder.put("londonBlock", l));
     getArrowGlacierBlockNumber().ifPresent(l -> builder.put("arrowGlacierBlock", l));
     getGrayGlacierBlockNumber().ifPresent(l -> builder.put("grayGlacierBlock", l));
-    getParisBlockNumber().ifPresent(l -> builder.put("parisBlock", l));
+    getMergeNetSplitBlockNumber().ifPresent(l -> builder.put("mergeNetSplitBlock", l));
+    getShanghaiTime().ifPresent(l -> builder.put("shanghaiTime", l));
+    getCancunTime().ifPresent(l -> builder.put("cancunTime", l));
     getTerminalBlockNumber().ifPresent(l -> builder.put("terminalBlockNumber", l));
     getTerminalBlockHash().ifPresent(h -> builder.put("terminalBlockHash", h.toHexString()));
+    getFutureEipsTime().ifPresent(l -> builder.put("futureEipsTime", l));
+    getExperimentalEipsTime().ifPresent(l -> builder.put("experimentalEipsTime", l));
 
     // classic fork blocks
     getClassicForkBlock().ifPresent(l -> builder.put("classicForkBlock", l));
@@ -491,6 +516,10 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
     if (isQuorum()) {
       builder.put("isQuorum", true);
       getQip714BlockNumber().ifPresent(blockNumber -> builder.put("qip714block", blockNumber));
+    }
+
+    if (isZeroBaseFee()) {
+      builder.put("zeroBaseFee", true);
     }
 
     return builder.build();
@@ -545,12 +574,12 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
       final String overrideHash = configOverrides.get(key);
       return Optional.of(Hash.fromHexString(overrideHash));
     } else {
-      return JsonUtil.getValueAsString(configRoot, key).map(s -> Hash.fromHexString(s));
+      return JsonUtil.getValueAsString(configRoot, key).map(Hash::fromHexString);
     }
   }
 
   @Override
-  public List<Long> getForks() {
+  public List<Long> getForkBlockNumbers() {
     Stream<OptionalLong> forkBlockNumbers =
         Stream.of(
             getHomesteadBlockNumber(),
@@ -566,8 +595,11 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
             getLondonBlockNumber(),
             getArrowGlacierBlockNumber(),
             getGrayGlacierBlockNumber(),
-            getParisBlockNumber(),
-            getTerminalBlockNumber(),
+            getMergeNetSplitBlockNumber(),
+            getShanghaiTime(),
+            getCancunTime(),
+            getFutureEipsTime(),
+            getExperimentalEipsTime(),
             getEcip1015BlockNumber(),
             getDieHardBlockNumber(),
             getGothamBlockNumber(),
@@ -582,6 +614,19 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
     // when adding forks add an entry to ${REPO_ROOT}/config/src/test/resources/all_forks.json
 
     return forkBlockNumbers
+        .filter(OptionalLong::isPresent)
+        .map(OptionalLong::getAsLong)
+        .distinct()
+        .sorted()
+        .collect(Collectors.toList());
+  }
+
+  @Override
+  public List<Long> getForkBlockTimestamps() {
+    Stream<OptionalLong> forkBlockTimestamps = Stream.of(getShanghaiTime(), getCancunTime());
+    // when adding forks add an entry to ${REPO_ROOT}/config/src/test/resources/all_forks.json
+
+    return forkBlockTimestamps
         .filter(OptionalLong::isPresent)
         .map(OptionalLong::getAsLong)
         .distinct()

@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.eth.sync.backwardsync;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider.createInMemoryBlockchain;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -33,6 +34,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManager;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManagerTestUtil;
 import org.hyperledger.besu.ethereum.eth.manager.RespondingEthPeer;
+import org.hyperledger.besu.ethereum.eth.manager.exceptions.MaxRetriesReachedException;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.MainnetProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
@@ -65,6 +67,7 @@ public class BackwardSyncStepTest {
 
   private final DeterministicEthScheduler ethScheduler = new DeterministicEthScheduler();
 
+  private MutableBlockchain localBlockchain;
   private MutableBlockchain remoteBlockchain;
   private RespondingEthPeer peer;
   GenericKeyValueStorageFacade<Hash, BlockHeader> headersStorage;
@@ -90,7 +93,7 @@ public class BackwardSyncStepTest {
 
     Block genesisBlock = blockDataGenerator.genesisBlock();
     remoteBlockchain = createInMemoryBlockchain(genesisBlock);
-    MutableBlockchain localBlockchain = createInMemoryBlockchain(genesisBlock);
+    localBlockchain = spy(createInMemoryBlockchain(genesisBlock));
 
     for (int i = 1; i <= REMOTE_HEIGHT; i++) {
       final BlockDataGenerator.BlockOptions options =
@@ -163,6 +166,20 @@ public class BackwardSyncStepTest {
   }
 
   @Test
+  public void shouldNotRequestHeaderIfAlreadyPresent() throws Exception {
+    BackwardSyncStep step = new BackwardSyncStep(context, createBackwardChain(REMOTE_HEIGHT - 1));
+    final Block lookingForBlock = getBlockByNumber(LOCAL_HEIGHT);
+
+    final CompletableFuture<List<BlockHeader>> future =
+        step.requestHeaders(lookingForBlock.getHeader().getHash());
+
+    verify(localBlockchain).getBlockHeader(lookingForBlock.getHash());
+    verify(context, never()).getEthContext();
+    final BlockHeader blockHeader = future.get().get(0);
+    assertThat(blockHeader).isEqualTo(lookingForBlock.getHeader());
+  }
+
+  @Test
   public void shouldRequestHeaderBeforeCurrentHeight() throws Exception {
     extendBlockchain(REMOTE_HEIGHT + 1, context.getProtocolContext().getBlockchain());
 
@@ -181,7 +198,7 @@ public class BackwardSyncStepTest {
   }
 
   @Test
-  public void shouldThrowWhenResponseIsEmptyWhenRequestingHeader() throws Exception {
+  public void shouldThrowWhenResponseIsEmptyWhenRequestingHeader() {
     BackwardSyncStep step = new BackwardSyncStep(context, createBackwardChain(REMOTE_HEIGHT - 1));
     final Block lookingForBlock = getBlockByNumber(REMOTE_HEIGHT - 2);
 
@@ -191,10 +208,7 @@ public class BackwardSyncStepTest {
         step.requestHeaders(lookingForBlock.getHeader().getHash());
     peer.respondWhileOtherThreadsWork(responder, () -> !future.isDone());
 
-    assertThatThrownBy(future::get)
-        .getCause()
-        .isInstanceOf(BackwardSyncException.class)
-        .hasMessageContaining("Did not receive a headers for hash");
+    assertThatThrownBy(future::get).cause().isInstanceOf(MaxRetriesReachedException.class);
   }
 
   @Test

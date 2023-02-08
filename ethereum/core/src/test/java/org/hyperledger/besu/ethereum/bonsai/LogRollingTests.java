@@ -32,6 +32,7 @@ import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.log.LogsBloomFilter;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorageTransaction;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
@@ -85,6 +86,8 @@ public class LogRollingTests {
           Wei.ZERO,
           Hash.ZERO,
           0,
+          null,
+          null,
           new MainnetBlockHeaderFunctions());
   private static final BlockHeader headerTwo =
       new BlockHeader(
@@ -104,12 +107,16 @@ public class LogRollingTests {
           Wei.ZERO,
           Hash.ZERO,
           0,
+          null,
+          null,
           new MainnetBlockHeaderFunctions());
 
   @Before
   public void createStorage() {
     final InMemoryKeyValueStorageProvider provider = new InMemoryKeyValueStorageProvider();
-    archive = new BonsaiWorldStateArchive(provider, blockchain);
+    final CachedMerkleTrieLoader cachedMerkleTrieLoader =
+        new CachedMerkleTrieLoader(new NoOpMetricsSystem());
+    archive = new BonsaiWorldStateArchive(provider, blockchain, cachedMerkleTrieLoader);
     accountStorage =
         (InMemoryKeyValueStorage)
             provider.getStorageBySegmentIdentifier(KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE);
@@ -128,7 +135,10 @@ public class LogRollingTests {
             provider.getStorageBySegmentIdentifier(KeyValueSegmentIdentifier.TRIE_LOG_STORAGE);
 
     final InMemoryKeyValueStorageProvider secondProvider = new InMemoryKeyValueStorageProvider();
-    secondArchive = new BonsaiWorldStateArchive(secondProvider, blockchain);
+    final CachedMerkleTrieLoader secondOptimizedMerkleTrieLoader =
+        new CachedMerkleTrieLoader(new NoOpMetricsSystem());
+    secondArchive =
+        new BonsaiWorldStateArchive(secondProvider, blockchain, secondOptimizedMerkleTrieLoader);
     secondAccountStorage =
         (InMemoryKeyValueStorage)
             secondProvider.getStorageBySegmentIdentifier(

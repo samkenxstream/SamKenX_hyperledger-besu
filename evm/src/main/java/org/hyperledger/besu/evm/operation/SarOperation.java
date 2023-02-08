@@ -24,18 +24,36 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 
+/** The Sar operation. */
 public class SarOperation extends AbstractFixedCostOperation {
+
+  /** The Sar operation success result. */
+  static final OperationResult sarSuccess = new OperationResult(3, null);
 
   private static final UInt256 ALL_BITS = UInt256.MAX_VALUE;
 
+  /**
+   * Instantiates a new Sar operation.
+   *
+   * @param gasCalculator the gas calculator
+   */
   public SarOperation(final GasCalculator gasCalculator) {
-    super(0x1d, "SAR", 2, 1, 1, gasCalculator, gasCalculator.getVeryLowTierGasCost());
+    super(0x1d, "SAR", 2, 1, gasCalculator, gasCalculator.getVeryLowTierGasCost());
   }
 
   @Override
   public Operation.OperationResult executeFixedCostOperation(
       final MessageFrame frame, final EVM evm) {
+    return staticOperation(frame);
+  }
 
+  /**
+   * Performs sar operation.
+   *
+   * @param frame the frame
+   * @return the operation result
+   */
+  public static OperationResult staticOperation(final MessageFrame frame) {
     Bytes shiftAmount = frame.popStackItem();
     final Bytes value = leftPad(frame.popStackItem());
     final boolean negativeNumber = value.get(0) < 0;
@@ -58,6 +76,6 @@ public class SarOperation extends AbstractFixedCostOperation {
         frame.pushStackItem(result);
       }
     }
-    return successResponse;
+    return sarSuccess;
   }
 }

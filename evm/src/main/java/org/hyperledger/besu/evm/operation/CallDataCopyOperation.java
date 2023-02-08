@@ -21,15 +21,18 @@ import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 
-import java.util.Optional;
-import java.util.OptionalLong;
-
 import org.apache.tuweni.bytes.Bytes;
 
+/** The Call data copy operation. */
 public class CallDataCopyOperation extends AbstractOperation {
 
+  /**
+   * Instantiates a new Call data copy operation.
+   *
+   * @param gasCalculator the gas calculator
+   */
   public CallDataCopyOperation(final GasCalculator gasCalculator) {
-    super(0x37, "CALLDATACOPY", 3, 0, 1, gasCalculator);
+    super(0x37, "CALLDATACOPY", 3, 0, gasCalculator);
   }
 
   @Override
@@ -40,14 +43,13 @@ public class CallDataCopyOperation extends AbstractOperation {
 
     final long cost = gasCalculator().dataCopyOperationGasCost(frame, memOffset, numBytes);
     if (frame.getRemainingGas() < cost) {
-      return new OperationResult(
-          OptionalLong.of(cost), Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
+      return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
 
     final Bytes callData = frame.getInputData();
 
     frame.writeMemory(memOffset, sourceOffset, numBytes, callData, true);
 
-    return new OperationResult(OptionalLong.of(cost), Optional.empty());
+    return new OperationResult(cost, null);
   }
 }

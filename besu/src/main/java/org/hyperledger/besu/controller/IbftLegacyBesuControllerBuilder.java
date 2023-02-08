@@ -39,6 +39,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.manager.MergePeerFilter;
 import org.hyperledger.besu.ethereum.eth.manager.snap.SnapProtocolManager;
 import org.hyperledger.besu.ethereum.eth.peervalidation.PeerValidator;
+import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
@@ -51,10 +52,18 @@ import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/** The Ibft legacy besu controller builder. */
 public class IbftLegacyBesuControllerBuilder extends BesuControllerBuilder {
 
   private static final Logger LOG = LoggerFactory.getLogger(IbftLegacyBesuControllerBuilder.class);
   private final BlockInterface blockInterface = new IbftLegacyBlockInterface();
+
+  // TODO remove this warning once IBFT1 has been deprecated
+  /** Default constructor */
+  public IbftLegacyBesuControllerBuilder() {
+    LOG.warn(
+        "IBFT1 is being deprecated and will be removed in a future release. Consider using QBFT instead of IBFT1 or using GoQuorum instead of Besu if you need to use IBFT1");
+  }
 
   @Override
   protected SubProtocolConfiguration createSubProtocolConfiguration(
@@ -119,7 +128,7 @@ public class IbftLegacyBesuControllerBuilder extends BesuControllerBuilder {
   @Override
   protected EthProtocolManager createEthProtocolManager(
       final ProtocolContext protocolContext,
-      final boolean fastSyncEnabled,
+      final SynchronizerConfiguration synchronizerConfiguration,
       final TransactionPool transactionPool,
       final EthProtocolConfiguration ethereumWireProtocolConfiguration,
       final EthPeers ethPeers,
@@ -139,7 +148,7 @@ public class IbftLegacyBesuControllerBuilder extends BesuControllerBuilder {
         ethMessages,
         ethContext,
         peerValidators,
-        fastSyncEnabled,
+        synchronizerConfiguration,
         scheduler);
   }
 }
